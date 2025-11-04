@@ -153,12 +153,18 @@ async def crear_ficha(
                 header_img_final = header_img_resized.crop((left, 0, left + a4_width, header_height))
                 logger.info(f"📐 Imagen horizontal recortada (centrada)")
             else:
+                # Imagen más vertical o cuadrada → recorte centrado verticalmente (modo cover)
                 new_width = a4_width
                 new_height = int(a4_width / aspect_ratio)
                 header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                top_crop = max(0, new_height - header_height)
-                header_img_final = header_img_resized.crop((0, top_crop, a4_width, new_height))
-                logger.info(f"📐 Imagen vertical anclada abajo (recorte: {top_crop}px)")
+
+                # Centramos verticalmente en el header
+                top_crop = max(0, (new_height - header_height) // 2)
+                bottom_crop = top_crop + header_height
+
+                header_img_final = header_img_resized.crop((0, top_crop, a4_width, bottom_crop))
+                logger.info(f"📐 Imagen vertical centrada (recorte: top={top_crop}px)")
+
             
             canvas.paste(header_img_final, (0, 0))
         
