@@ -358,12 +358,31 @@ async def crear_hoja_preguntas(
             'italic': font_bold,
             'bold_italic': font_bold
         }
+
+        # PROCESAR PREGUNTAS (detectar si es lista JSON o texto plano)
+        try:
+            import json
+            preguntas_list = json.loads(preguntas)  # Intenta parsear como JSON
+            if isinstance(preguntas_list, list):
+                logger.info(f"✅ Lista de {len(preguntas_list)} preguntas detectada")
+                # Formatear cada pregunta con número
+                preguntas_formateadas = []
+                for i, pregunta in enumerate(preguntas_list, 1):
+                    preguntas_formateadas.append(f"{i}. {pregunta}")
+                texto_preguntas = "\n\n".join(preguntas_formateadas)
+            else:
+                texto_preguntas = preguntas
+        except (json.JSONDecodeError, TypeError):
+            # Si no es JSON, usar como texto plano
+            logger.info("📝 Texto plano detectado")
+            texto_preguntas = preguntas
         
         # CONFIGURACIÓN DE LAYOUT
-        margin_left = 200
-        margin_right = 200
-        margin_top = 280
-        line_spacing = 75
+        margin_left = 350
+        margin_right = 350
+        margin_top = 350
+        paragraph_spacing = 85  # Espacio EXTRA entre preguntas
+        line_spacing = 65       # Espacio entre líneas de la misma pregunta
         max_width_px = a4_width - margin_left - margin_right
         
         y_text = margin_top
@@ -437,6 +456,44 @@ async def crear_hoja_preguntas(
             
             draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
             y_text += line_spacing
+
+
+        #####**********************
+        # 
+        #DIBUJAR PREGUNTAS CON MEJOR ESPACIADO
+        text_color = '#2C3E50'
+        max_height = 2900
+        
+        # Dividir por párrafos (cada pregunta)
+        paragraphs = texto_preguntas.split('\n\n')  # Doble salto = nueva pregunta
+        
+        logger.info(f"📝 {len(paragraphs)} preguntas detectadas")
+        
+        questions_drawn = 0
+        for idx, paragraph in enumerate(paragraphs):
+            if not paragraph.strip():
+                continue
+            
+            # Procesar cada pregunta (puede tener múltiples líneas)
+            paragraph_lines = wrap_text_with_markdown(paragraph, fonts, max_width_px, draw)
+            
+            for line_idx, line in enumerate(paragraph_lines):
+                if y_text > max_height:
+                    logger.warning(f"⚠️ Truncado en pregunta {idx+1}/{len(paragraphs)}")
+                    break
+                
+                draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
+                y_text += line_spacing
+            
+            # Espacio extra entre preguntas
+            y_text += paragraph_spacing
+            questions_drawn += 1
+            
+            if y_text > max_height:
+                break
+        
+        logger.info(f"✅ {questions_drawn}/{len(paragraphs)} preguntas dibujadas")
+        #####**********************    
         
         # GUARDAR
         output_path = "/tmp/hoja_preguntas.png"
