@@ -22,11 +22,11 @@ def parse_markdown_line(line):
         
         matched_text = match.group(0)
         if matched_text.startswith('***') and matched_text.endswith('***'):
-            segments.append((matched_text[3:-3], 'bold_italic'))
+            segments.append((matched_text[3:-3], 'bold'))
         elif matched_text.startswith('**') and matched_text.endswith('**'):
             segments.append((matched_text[2:-2], 'bold'))
         elif matched_text.startswith('*') and matched_text.endswith('*'):
-            segments.append((matched_text[1:-1], 'italic'))
+            segments.append((matched_text[1:-1], 'bold'))
         
         last_end = match.end()
     
@@ -119,7 +119,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     imagen_modo: str = Form(default="crop")
 ):
-    logger.info(f"📥 v4.2-MARKDOWN")
+    logger.info(f"📥 v4.3-FIX")
     
     try:
         img_bytes = await imagen.read()
@@ -156,19 +156,25 @@ async def crear_ficha(
         
         draw = ImageDraw.Draw(canvas)
         
-        # Fuentes con variantes
+        # Fuentes con tamaños FIJOS y manejo de errores robusto
         try:
-            fonts = {
-                'normal': ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50),
-                'bold': ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50),
-                'italic': ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", 50),
-                'bold_italic': ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf", 50)
-            }
+            font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
+            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
             font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 75)
-        except:
-            default = ImageFont.load_default()
-            fonts = {'normal': default, 'bold': default, 'italic': default, 'bold_italic': default}
-            font_titulo = default
+            logger.info("✅ Fuentes cargadas correctamente")
+        except Exception as e:
+            logger.error(f"❌ Error cargando fuentes: {e}")
+            # Usar fuente por defecto GRANDE
+            font_normal = ImageFont.load_default()
+            font_bold = ImageFont.load_default()
+            font_titulo = ImageFont.load_default()
+        
+        fonts = {
+            'normal': font_normal,
+            'bold': font_bold,
+            'italic': font_bold,  # Usar bold para itálica si no hay
+            'bold_italic': font_bold
+        }
         
         margin_left = 180
         margin_right = 180
@@ -181,24 +187,23 @@ async def crear_ficha(
         
         # Título
         if titulo:
+            logger.info(f"Dibujando título: {titulo}")
             if estilo == "infantil":
                 draw_stars(draw, a4_width, y_text + 40)
             
-            titulo_lines = wrap_text_with_markdown(titulo, {'normal': font_titulo}, max_width_px, draw)
+            # Título sin markdown (simple)
+            bbox = draw.textbbox((0, 0), titulo, font=font_titulo)
+            text_width = bbox[2] - bbox[0]
+            x_centered = (a4_width - text_width) // 2
             
-            for line in titulo_lines:
-                bbox = draw.textbbox((0, 0), line, font=font_titulo)
-                text_width = bbox[2] - bbox[0]
-                x_centered = (a4_width - text_width) // 2
-                
-                if estilo == "infantil":
-                    draw.text((x_centered + 4, y_text + 4), line, font=font_titulo, fill='#FFB6C1')
-                    draw.text((x_centered + 2, y_text + 2), line, font=font_titulo, fill='#87CEEB')
-                    draw.text((x_centered, y_text), line, font=font_titulo, fill='#FF6B9D')
-                else:
-                    draw.text((x_centered, y_text), line, font=font_titulo, fill='#1a5490')
-                
-                y_text += 95
+            if estilo == "infantil":
+                draw.text((x_centered + 4, y_text + 4), titulo, font=font_titulo, fill='#FFB6C1')
+                draw.text((x_centered + 2, y_text + 2), titulo, font=font_titulo, fill='#87CEEB')
+                draw.text((x_centered, y_text), titulo, font=font_titulo, fill='#FF6B9D')
+            else:
+                draw.text((x_centered, y_text), titulo, font=font_titulo, fill='#1a5490')
+            
+            y_text += 95
             
             y_text += 35
             if estilo == "infantil":
@@ -213,11 +218,15 @@ async def crear_ficha(
             y_text += 80
         
         # Texto con markdown
+        logger.info("Procesando texto con markdown...")
         text_color = '#2C3E50' if estilo == "infantil" else '#2c2c2c'
         texto_lines = wrap_text_with_markdown(texto_cuento, fonts, max_width_px, draw)
         
+        logger.info(f"Total de líneas: {len(texto_lines)}")
+        
         for i, line in enumerate(texto_lines):
             if y_text > max_height:
+                logger.warning(f"Línea {i} excede altura máxima")
                 break
             
             x_pos = margin_left + 120 if i == 0 else margin_left
@@ -230,18 +239,20 @@ async def crear_ficha(
         output_path = "/tmp/ficha_completa.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
-        logger.info("✅ Ficha con markdown creada")
+        logger.info("✅ Ficha creada exitosamente")
         
         return FileResponse(output_path, media_type="image/png", filename="ficha_educativa.png")
     
     except Exception as e:
-        logger.error(f"❌ Error: {str(e)}")
+        logger.error(f"❌ Error general: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.2-MARKDOWN", "features": ["markdown_bold_italic"]}
+    return {"status": "ok", "version": "4.3-FIX", "message": "Fixed font size issue"}
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "4.2"}
+    return {"status": "healthy", "version": "4.3"}
