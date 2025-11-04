@@ -281,49 +281,105 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     """
-    Crea una hoja de preguntas A4 con borde decorativo
-    
-    - imagen_borde: Imagen decorativa (se adaptará a A4)
-    - preguntas: Texto con las preguntas del cuento
-    - titulo_cuento: Título del cuento (opcional)
-    - estilo: "infantil" o "formal"
+    Crea una hoja de preguntas A4 con borde decorativo extraído de imagen cuadrada
     """
-    logger.info(f"📝 v1.0-PREGUNTAS: {len(preguntas)} caracteres")
+    logger.info(f"📝 v2.0-PREGUNTAS-ELEMENTOS: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
         img_bytes = await imagen_borde.read()
         border_img = Image.open(io.BytesIO(img_bytes))
         
-        if border_img.mode != 'RGB':
-            border_img = border_img.convert('RGB')
+        # Convertir a RGBA para mantener transparencias
+        if border_img.mode != 'RGBA':
+            border_img = border_img.convert('RGBA')
         
         # Dimensiones A4
         a4_width = 2480
         a4_height = 3508
         
-        # ADAPTAR IMAGEN CUADRADA A A4
-        # Si la imagen es cuadrada, la ajustamos para que quepa
+        # CREAR CANVAS A4 CON FONDO BLANCO/CREMA
+        bg_color = (255, 254, 240, 255) if estilo == "infantil" else (255, 255, 255, 255)
+        canvas = Image.new('RGBA', (a4_width, a4_height), bg_color)
+        
+        # ===== EXTRAER Y COLOCAR ELEMENTOS DECORATIVOS =====
         if border_img.width == border_img.height:
-            # Imagen cuadrada: usar como está pero centrada
-            logger.info("📐 Imagen cuadrada detectada, adaptando a A4")
+            logger.info("📐 Imagen cuadrada detectada - Extrayendo elementos decorativos")
             
-            # Crear canvas A4 con fondo de la imagen
-            canvas = border_img.resize((a4_width, a4_width), Image.Resampling.LANCZOS)
+            border_size = border_img.width
             
-            # Si la imagen es más pequeña que A4 height, crear canvas completo
-            if canvas.height < a4_height:
-                final_canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0')
-                # Centrar verticalmente
-                y_offset = (a4_height - canvas.height) // 2
-                final_canvas.paste(canvas, (0, y_offset))
-                canvas = final_canvas
-            else:
-                # Recortar para que sea A4
-                canvas = canvas.crop((0, 0, a4_width, a4_height))
+            # Tamaño de las esquinas (ajusta según tu imagen)
+            corner_size = int(border_size * 0.25)  # 25% del borde
+            
+            # ESQUINAS
+            # Superior izquierda (árbol y elementos)
+            top_left = border_img.crop((0, 0, corner_size, corner_size))
+            canvas.paste(top_left, (0, 0), top_left)
+            logger.info(f"✅ Esquina superior izquierda pegada (0,0)")
+            
+            # Superior derecha (hojas, etc)
+            top_right = border_img.crop((border_size - corner_size, 0, border_size, corner_size))
+            canvas.paste(top_right, (a4_width - corner_size, 0), top_right)
+            logger.info(f"✅ Esquina superior derecha pegada")
+            
+            # Inferior izquierda (mapa, ardilla)
+            bottom_left = border_img.crop((0, border_size - corner_size, corner_size, border_size))
+            canvas.paste(bottom_left, (0, a4_height - corner_size), bottom_left)
+            logger.info(f"✅ Esquina inferior izquierda pegada")
+            
+            # Inferior derecha (cascada, flores)
+            bottom_right = border_img.crop((border_size - corner_size, border_size - corner_size, border_size, border_size))
+            canvas.paste(bottom_right, (a4_width - corner_size, a4_height - corner_size), bottom_right)
+            logger.info(f"✅ Esquina inferior derecha pegada")
+            
+            # BORDES LATERALES (más delgados que esquinas)
+            border_thickness = int(border_size * 0.08)  # 8% del borde para los lados
+            
+            # Borde izquierdo (entre esquinas)
+            left_section = border_img.crop((0, corner_size, border_thickness, border_size - corner_size))
+            # Estirar verticalmente para llenar el espacio
+            left_stretched = left_section.resize(
+                (border_thickness, a4_height - 2 * corner_size), 
+                Image.Resampling.LANCZOS
+            )
+            canvas.paste(left_stretched, (0, corner_size), left_stretched)
+            logger.info(f"✅ Borde izquierdo pegado")
+            
+            # Borde derecho
+            right_section = border_img.crop((border_size - border_thickness, corner_size, border_size, border_size - corner_size))
+            right_stretched = right_section.resize(
+                (border_thickness, a4_height - 2 * corner_size), 
+                Image.Resampling.LANCZOS
+            )
+            canvas.paste(right_stretched, (a4_width - border_thickness, corner_size), right_stretched)
+            logger.info(f"✅ Borde derecho pegado")
+            
+            # Borde superior (entre esquinas)
+            top_section = border_img.crop((corner_size, 0, border_size - corner_size, border_thickness))
+            top_stretched = top_section.resize(
+                (a4_width - 2 * corner_size, border_thickness), 
+                Image.Resampling.LANCZOS
+            )
+            canvas.paste(top_stretched, (corner_size, 0), top_stretched)
+            logger.info(f"✅ Borde superior pegado")
+            
+            # Borde inferior
+            bottom_section = border_img.crop((corner_size, border_size - border_thickness, border_size - corner_size, border_size))
+            bottom_stretched = bottom_section.resize(
+                (a4_width - 2 * corner_size, border_thickness), 
+                Image.Resampling.LANCZOS
+            )
+            canvas.paste(bottom_stretched, (corner_size, a4_height - border_thickness), bottom_stretched)
+            logger.info(f"✅ Borde inferior pegado")
+            
+            # Convertir a RGB para el resto del procesamiento
+            canvas = canvas.convert('RGB')
+            
         else:
-            # Imagen no cuadrada: redimensionar a A4
+            # Imagen no cuadrada: usar método anterior (redimensionar)
+            logger.info("📐 Imagen no cuadrada - Redimensionando a A4")
             canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
+            canvas = canvas.convert('RGB')
         
         draw = ImageDraw.Draw(canvas)
         
@@ -348,9 +404,9 @@ async def crear_hoja_preguntas(
             'bold_italic': font_bold
         }
         
-        # CONFIGURACIÓN DE LAYOUT
-        margin_left = 200
-        margin_right = 200
+        # CONFIGURACIÓN DE LAYOUT (ajustada para dar más espacio al contenido)
+        margin_left = 250  # Más margen para que no se solape con el borde
+        margin_right = 250
         margin_top = 280
         line_spacing = 75
         max_width_px = a4_width - margin_left - margin_right
@@ -364,6 +420,7 @@ async def crear_hoja_preguntas(
         x_centered = (a4_width - text_width) // 2
         
         if estilo == "infantil":
+            # Efecto sombra colorida
             draw.text((x_centered + 3, y_text + 3), encabezado, font=font_titulo, fill='#FFB6C1')
             draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#FF6B9D')
         else:
@@ -381,7 +438,7 @@ async def crear_hoja_preguntas(
             y_text += 75
         
         # LÍNEA SEPARADORA
-        line_margin = 300
+        line_margin = 400
         if estilo == "infantil":
             colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4']
             segment_width = (a4_width - 2 * line_margin) // len(colors)
@@ -400,11 +457,11 @@ async def crear_hoja_preguntas(
         # Nombre
         draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill='#2C3E50')
         line_x_start = margin_left + 200
-        line_x_end = margin_left + 1000
+        line_x_end = margin_left + 900
         draw.line([(line_x_start, campos_y + 55), (line_x_end, campos_y + 55)], fill='#2C3E50', width=2)
         
         # Fecha
-        fecha_x = a4_width - margin_right - 500
+        fecha_x = a4_width - margin_right - 450
         draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill='#2C3E50')
         line_x_start = fecha_x + 150
         line_x_end = a4_width - margin_right
@@ -419,19 +476,23 @@ async def crear_hoja_preguntas(
         logger.info(f"📝 {len(preguntas_lines)} líneas de preguntas")
         
         max_height = 3200
+        lines_drawn = 0
         for i, line in enumerate(preguntas_lines):
             if y_text > max_height:
-                logger.warning(f"⚠️ Preguntas truncadas en línea {i+1}")
+                logger.warning(f"⚠️ Preguntas truncadas en línea {i+1}/{len(preguntas_lines)}")
                 break
             
             draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
             y_text += line_spacing
+            lines_drawn += 1
+        
+        logger.info(f"✅ {lines_drawn}/{len(preguntas_lines)} líneas dibujadas")
         
         # GUARDAR
         output_path = "/tmp/hoja_preguntas.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
-        logger.info("✅ Hoja de preguntas creada")
+        logger.info("✅ Hoja de preguntas creada exitosamente")
         
         return FileResponse(output_path, media_type="image/png", filename="hoja_preguntas.png")
     
