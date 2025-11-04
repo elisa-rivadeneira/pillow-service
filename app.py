@@ -79,10 +79,14 @@ def wrap_text_with_markdown(text, fonts, max_width_px, draw):
     return lines
 
 def draw_stars(draw, a4_width, y_position):
-    """Dibuja estrellitas"""
+    """Dibuja estrellitas decorativas"""
     star_color = '#FFD700'
-    positions = [(400, y_position - 20), (450, y_position - 40),
-                 (a4_width - 450, y_position - 40), (a4_width - 400, y_position - 20)]
+    positions = [
+        (400, y_position - 20),
+        (450, y_position - 40),
+        (a4_width - 450, y_position - 40),
+        (a4_width - 400, y_position - 20)
+    ]
     
     import math
     for x, y in positions:
@@ -96,7 +100,7 @@ def draw_stars(draw, a4_width, y_position):
         draw.polygon(points, fill=star_color, outline='#FFA500')
 
 def draw_wavy_border(draw, a4_width, a4_height):
-    """Dibuja borde ondulado"""
+    """Dibuja borde ondulado infantil"""
     import math
     colors = ['#FF6B9D', '#FFA07A', '#FFD93D', '#6BCF7F', '#4ECDC4', '#95E1D3']
     margin = 60
@@ -115,11 +119,11 @@ async def crear_ficha(
     imagen: UploadFile = File(...),
     texto_cuento: str = Form(...),
     titulo: str = Form(default=""),
-    header_height: int = Form(default=1450),
+    header_height: int = Form(default=1300),
     estilo: str = Form(default="infantil"),
     imagen_modo: str = Form(default="crop")
 ):
-    logger.info(f"📥 v4.3-FIX")
+    logger.info(f"📥 v4.5-COMPLETE: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -132,39 +136,50 @@ async def crear_ficha(
         a4_height = 3508
         canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0' if estilo == "infantil" else 'white')
         
-        # Imagen
+        # PROCESAMIENTO DE IMAGEN
         if imagen_modo == "stretch":
+            # Modo estirar
             header_img_final = header_img.resize((a4_width, header_height), Image.Resampling.LANCZOS)
             canvas.paste(header_img_final, (0, 0))
+            logger.info("📐 Imagen estirada a ancho completo")
         else:
+            # Modo crop (recortar inteligente)
             aspect_ratio = header_img.width / header_img.height
             target_aspect = a4_width / header_height
             
             if aspect_ratio > target_aspect:
+                # Imagen horizontal: ajustar por altura, recortar ancho (centrado)
                 new_height = header_height
                 new_width = int(header_height * aspect_ratio)
                 header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # Centrar horizontalmente
                 left = (new_width - a4_width) // 2
                 header_img_final = header_img_resized.crop((left, 0, left + a4_width, header_height))
+                logger.info(f"📐 Imagen horizontal recortada: {new_width}px → {a4_width}px (centrada)")
             else:
+                # Imagen vertical: ajustar por ancho, recortar altura desde ARRIBA (mantener parte inferior)
                 new_width = a4_width
                 new_height = int(a4_width / aspect_ratio)
                 header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                header_img_final = header_img_resized.crop((0, 0, a4_width, header_height))
+                
+                # Anclar desde ABAJO (recortar el cielo, mantener niños y flor)
+                top_crop = max(0, new_height - header_height)
+                header_img_final = header_img_resized.crop((0, top_crop, a4_width, new_height))
+                logger.info(f"📐 Imagen vertical recortada: {new_height}px → {header_height}px (anclada abajo, recorte superior: {top_crop}px)")
             
             canvas.paste(header_img_final, (0, 0))
         
         draw = ImageDraw.Draw(canvas)
         
-        # Fuentes con tamaños FIJOS y manejo de errores robusto
+        # FUENTES OPTIMIZADAS
         try:
-            font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
-            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
-            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 75)
+            font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 44)
+            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 44)
+            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 68)
             logger.info("✅ Fuentes cargadas correctamente")
         except Exception as e:
             logger.error(f"❌ Error cargando fuentes: {e}")
-            # Usar fuente por defecto GRANDE
             font_normal = ImageFont.load_default()
             font_bold = ImageFont.load_default()
             font_titulo = ImageFont.load_default()
@@ -172,70 +187,87 @@ async def crear_ficha(
         fonts = {
             'normal': font_normal,
             'bold': font_bold,
-            'italic': font_bold,  # Usar bold para itálica si no hay
+            'italic': font_bold,
             'bold_italic': font_bold
         }
         
-        margin_left = 180
-        margin_right = 180
-        margin_top = header_height + 100
-        line_spacing = 85
+        # CONFIGURACIÓN DE LAYOUT OPTIMIZADA
+        margin_left = 160
+        margin_right = 160
+        margin_top = header_height + 75
+        line_spacing = 72
         max_width_px = a4_width - margin_left - margin_right
-        max_height = 3250
+        max_height = 3380
         
         y_text = margin_top
         
-        # Título
+        # TÍTULO
         if titulo:
-            logger.info(f"Dibujando título: {titulo}")
+            logger.info(f"📝 Dibujando título: '{titulo}'")
+            
             if estilo == "infantil":
                 draw_stars(draw, a4_width, y_text + 40)
             
-            # Título sin markdown (simple)
             bbox = draw.textbbox((0, 0), titulo, font=font_titulo)
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
             
             if estilo == "infantil":
+                # Sombras de colores
                 draw.text((x_centered + 4, y_text + 4), titulo, font=font_titulo, fill='#FFB6C1')
                 draw.text((x_centered + 2, y_text + 2), titulo, font=font_titulo, fill='#87CEEB')
+                # Título principal
                 draw.text((x_centered, y_text), titulo, font=font_titulo, fill='#FF6B9D')
             else:
+                draw.text((x_centered + 3, y_text + 3), titulo, font=font_titulo, fill='#cccccc')
                 draw.text((x_centered, y_text), titulo, font=font_titulo, fill='#1a5490')
             
-            y_text += 95
+            y_text += 88
+            y_text += 30
             
-            y_text += 35
+            # Línea decorativa
             if estilo == "infantil":
                 colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4', '#95E1D3']
                 line_margin = 450
                 segment_width = (a4_width - 2 * line_margin) // len(colors)
+                
                 for i, color in enumerate(colors):
                     x1 = line_margin + i * segment_width
                     x2 = x1 + segment_width
                     draw.rectangle([(x1, y_text), (x2, y_text + 8)], fill=color)
+            else:
+                line_margin = 500
+                draw.line([(line_margin, y_text), (a4_width - line_margin, y_text)], fill='#1a5490', width=3)
             
-            y_text += 80
+            y_text += 70
         
-        # Texto con markdown
-        logger.info("Procesando texto con markdown...")
+        # TEXTO CON MARKDOWN
         text_color = '#2C3E50' if estilo == "infantil" else '#2c2c2c'
         texto_lines = wrap_text_with_markdown(texto_cuento, fonts, max_width_px, draw)
         
-        logger.info(f"Total de líneas: {len(texto_lines)}")
+        logger.info(f"📝 Total de líneas: {len(texto_lines)}")
         
+        lines_drawn = 0
         for i, line in enumerate(texto_lines):
             if y_text > max_height:
-                logger.warning(f"Línea {i} excede altura máxima")
+                logger.warning(f"⚠️ Texto truncado en línea {i+1}/{len(texto_lines)} (quedan {len(texto_lines)-i} líneas)")
                 break
             
-            x_pos = margin_left + 120 if i == 0 else margin_left
+            # Sangría en primera línea
+            x_pos = margin_left + 100 if i == 0 else margin_left
+            
+            # Dibujar línea con formato markdown
             draw_formatted_line(draw, x_pos, y_text, line, fonts, text_color)
             y_text += line_spacing
+            lines_drawn += 1
         
+        logger.info(f"✅ {lines_drawn}/{len(texto_lines)} líneas dibujadas")
+        
+        # BORDE DECORATIVO
         if estilo == "infantil":
             draw_wavy_border(draw, a4_width, a4_height)
         
+        # GUARDAR
         output_path = "/tmp/ficha_completa.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
@@ -244,15 +276,26 @@ async def crear_ficha(
         return FileResponse(output_path, media_type="image/png", filename="ficha_educativa.png")
     
     except Exception as e:
-        logger.error(f"❌ Error general: {str(e)}")
+        logger.error(f"❌ Error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.3-FIX", "message": "Fixed font size issue"}
+    return {
+        "status": "ok",
+        "version": "4.5-COMPLETE",
+        "features": [
+            "markdown_bold",
+            "crop_from_bottom",
+            "optimized_spacing",
+            "colorful_title",
+            "wavy_border"
+        ],
+        "message": "Optimized for longer text with bottom-anchored images"
+    }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "4.3"}
+    return {"status": "healthy", "version": "4.5"}
