@@ -270,15 +270,190 @@ async def crear_ficha(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+
+@app.post("/crear-hoja-preguntas")
+async def crear_hoja_preguntas(
+    imagen_borde: UploadFile = File(...),
+    preguntas: str = Form(...),
+    titulo_cuento: str = Form(default=""),
+    estilo: str = Form(default="infantil")
+):
+    """
+    Crea una hoja de preguntas A4 con borde decorativo
+    
+    - imagen_borde: Imagen decorativa (se adaptará a A4)
+    - preguntas: Texto con las preguntas del cuento
+    - titulo_cuento: Título del cuento (opcional)
+    - estilo: "infantil" o "formal"
+    """
+    logger.info(f"📝 v1.0-PREGUNTAS: {len(preguntas)} caracteres")
+    
+    try:
+        # Leer imagen del borde
+        img_bytes = await imagen_borde.read()
+        border_img = Image.open(io.BytesIO(img_bytes))
+        
+        if border_img.mode != 'RGB':
+            border_img = border_img.convert('RGB')
+        
+        # Dimensiones A4
+        a4_width = 2480
+        a4_height = 3508
+        
+        # ADAPTAR IMAGEN CUADRADA A A4
+        # Si la imagen es cuadrada, la ajustamos para que quepa
+        if border_img.width == border_img.height:
+            # Imagen cuadrada: usar como está pero centrada
+            logger.info("📐 Imagen cuadrada detectada, adaptando a A4")
+            
+            # Crear canvas A4 con fondo de la imagen
+            canvas = border_img.resize((a4_width, a4_width), Image.Resampling.LANCZOS)
+            
+            # Si la imagen es más pequeña que A4 height, crear canvas completo
+            if canvas.height < a4_height:
+                final_canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0')
+                # Centrar verticalmente
+                y_offset = (a4_height - canvas.height) // 2
+                final_canvas.paste(canvas, (0, y_offset))
+                canvas = final_canvas
+            else:
+                # Recortar para que sea A4
+                canvas = canvas.crop((0, 0, a4_width, a4_height))
+        else:
+            # Imagen no cuadrada: redimensionar a A4
+            canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
+        
+        draw = ImageDraw.Draw(canvas)
+        
+        # FUENTES
+        try:
+            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
+            font_subtitulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
+            font_preguntas = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+            logger.info("✅ Fuentes cargadas")
+        except Exception as e:
+            logger.error(f"❌ Error fuentes: {e}")
+            font_titulo = ImageFont.load_default()
+            font_subtitulo = ImageFont.load_default()
+            font_preguntas = ImageFont.load_default()
+            font_bold = ImageFont.load_default()
+        
+        fonts = {
+            'normal': font_preguntas,
+            'bold': font_bold,
+            'italic': font_bold,
+            'bold_italic': font_bold
+        }
+        
+        # CONFIGURACIÓN DE LAYOUT
+        margin_left = 200
+        margin_right = 200
+        margin_top = 280
+        line_spacing = 75
+        max_width_px = a4_width - margin_left - margin_right
+        
+        y_text = margin_top
+        
+        # ENCABEZADO
+        encabezado = "📚 Comprensión Lectora"
+        bbox = draw.textbbox((0, 0), encabezado, font=font_titulo)
+        text_width = bbox[2] - bbox[0]
+        x_centered = (a4_width - text_width) // 2
+        
+        if estilo == "infantil":
+            draw.text((x_centered + 3, y_text + 3), encabezado, font=font_titulo, fill='#FFB6C1')
+            draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#FF6B9D')
+        else:
+            draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#1a5490')
+        
+        y_text += 90
+        
+        # TÍTULO DEL CUENTO
+        if titulo_cuento:
+            cuento_text = f'Cuento: "{titulo_cuento}"'
+            bbox = draw.textbbox((0, 0), cuento_text, font=font_subtitulo)
+            text_width = bbox[2] - bbox[0]
+            x_centered = (a4_width - text_width) // 2
+            draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill='#2C3E50')
+            y_text += 75
+        
+        # LÍNEA SEPARADORA
+        line_margin = 300
+        if estilo == "infantil":
+            colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4']
+            segment_width = (a4_width - 2 * line_margin) // len(colors)
+            for i, color in enumerate(colors):
+                x1 = line_margin + i * segment_width
+                x2 = x1 + segment_width
+                draw.rectangle([(x1, y_text), (x2, y_text + 6)], fill=color)
+        else:
+            draw.line([(line_margin, y_text), (a4_width - line_margin, y_text)], fill='#1a5490', width=3)
+        
+        y_text += 60
+        
+        # CAMPOS DE NOMBRE Y FECHA
+        campos_y = y_text
+        
+        # Nombre
+        draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill='#2C3E50')
+        line_x_start = margin_left + 200
+        line_x_end = margin_left + 1000
+        draw.line([(line_x_start, campos_y + 55), (line_x_end, campos_y + 55)], fill='#2C3E50', width=2)
+        
+        # Fecha
+        fecha_x = a4_width - margin_right - 500
+        draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill='#2C3E50')
+        line_x_start = fecha_x + 150
+        line_x_end = a4_width - margin_right
+        draw.line([(line_x_start, campos_y + 55), (line_x_end, campos_y + 55)], fill='#2C3E50', width=2)
+        
+        y_text += 120
+        
+        # PREGUNTAS CON MARKDOWN
+        text_color = '#2C3E50'
+        preguntas_lines = wrap_text_with_markdown(preguntas, fonts, max_width_px, draw)
+        
+        logger.info(f"📝 {len(preguntas_lines)} líneas de preguntas")
+        
+        max_height = 3200
+        for i, line in enumerate(preguntas_lines):
+            if y_text > max_height:
+                logger.warning(f"⚠️ Preguntas truncadas en línea {i+1}")
+                break
+            
+            draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
+            y_text += line_spacing
+        
+        # GUARDAR
+        output_path = "/tmp/hoja_preguntas.png"
+        canvas.save(output_path, quality=95, dpi=(300, 300))
+        
+        logger.info("✅ Hoja de preguntas creada")
+        
+        return FileResponse(output_path, media_type="image/png", filename="hoja_preguntas.png")
+    
+    except Exception as e:
+        logger.error(f"❌ Error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/")
 def root():
     return {
         "status": "ok",
-        "version": "4.6-KIDS",
-        "features": ["larger_font_52px", "smaller_header_1150px", "kid_friendly"],
-        "message": "Optimized for 8-year-old children"
+        "version": "5.0-DUAL",
+        "features": ["crear_ficha", "crear_hoja_preguntas"],
+        "endpoints": {
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento",
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo"
+        },
+        "message": "Dual service: reading worksheets + question sheets"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "4.6"}
+    return {"status": "healthy", "version": "5.0"}
