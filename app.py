@@ -71,7 +71,7 @@ async def crear_ficha(
     imagen: UploadFile = File(...),
     texto_cuento: str = Form(...),
     titulo: str = Form(default=""),
-    header_height: int = Form(default=1300),
+    header_height: int = Form(default=1450),
     estilo: str = Form(default="infantil"),
     imagen_modo: str = Form(default="crop")  # "crop" o "stretch"
 ):
