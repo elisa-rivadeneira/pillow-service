@@ -280,15 +280,7 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    """
-    Crea una hoja de preguntas A4 con borde decorativo
-    
-    - imagen_borde: Imagen decorativa (se adaptará a A4)
-    - preguntas: Texto con las preguntas del cuento
-    - titulo_cuento: Título del cuento (opcional)
-    - estilo: "infantil" o "formal"
-    """
-    logger.info(f"📝 v1.0-PREGUNTAS: {len(preguntas)} caracteres")
+    logger.info(f"📝 v4.0-PREGUNTAS-OPCIONES: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -302,37 +294,10 @@ async def crear_hoja_preguntas(
         a4_width = 2480
         a4_height = 3508
         
-        # ADAPTAR IMAGEN CUADRADA A A4
-        # Si la imagen es cuadrada, la ajustamos para que quepa
-        # if border_img.width == border_img.height:
-        #     # Imagen cuadrada: usar como está pero centrada
-        #     logger.info("📐 Imagen cuadrada detectada, adaptando a A4")
-            
-        #     # Crear canvas A4 con fondo de la imagen
-        #     canvas = border_img.resize((a4_width, a4_width), Image.Resampling.LANCZOS)
-        #     # Si la imagen es cuadrada, la ajustamos para que quepa
-        #     # Si la imagen es más pequeña que A4 height, crear canvas completo
-        #     if canvas.height < a4_height:
-        #         final_canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0')
-        #         # Centrar verticalmente
-        #         y_offset = (a4_height - canvas.height) // 2
-        #         final_canvas.paste(canvas, (0, y_offset))
-        #         canvas = final_canvas
-                
-        #     else:
-        #         # Recortar para que sea A4
-        #         canvas = canvas.crop((0, 0, a4_width, a4_height))
-        # else:
-        #     # Imagen no cuadrada: redimensionar a A4
-        #     canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS).
-
-
-        # ADAPTAR IMAGEN A A4 (ESTIRAR PARA CUBRIR TODA LA PÁGINA)
+        # ADAPTAR IMAGEN A A4 (ESTIRAR)
         logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
-
-        # Simplemente estirar la imagen completa a las dimensiones A4
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
-
+        
         if canvas.mode != 'RGB':
             canvas = canvas.convert('RGB')
         
@@ -342,8 +307,10 @@ async def crear_hoja_preguntas(
         try:
             font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
             font_subtitulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
-            font_preguntas = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+            font_preguntas = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 45)
             font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+            font_numero = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
+            font_opciones = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 42)
             logger.info("✅ Fuentes cargadas")
         except Exception as e:
             logger.error(f"❌ Error fuentes: {e}")
@@ -351,6 +318,8 @@ async def crear_hoja_preguntas(
             font_subtitulo = ImageFont.load_default()
             font_preguntas = ImageFont.load_default()
             font_bold = ImageFont.load_default()
+            font_numero = ImageFont.load_default()
+            font_opciones = ImageFont.load_default()
         
         fonts = {
             'normal': font_preguntas,
@@ -358,31 +327,34 @@ async def crear_hoja_preguntas(
             'italic': font_bold,
             'bold_italic': font_bold
         }
-
-        # PROCESAR PREGUNTAS (detectar si es lista JSON o texto plano)
+        
+        fonts_opciones = {
+            'normal': font_opciones,
+            'bold': font_opciones,
+            'italic': font_opciones,
+            'bold_italic': font_opciones
+        }
+        
+        # PROCESAR PREGUNTAS
         try:
             import json
-            preguntas_list = json.loads(preguntas)  # Intenta parsear como JSON
-            if isinstance(preguntas_list, list):
-                logger.info(f"✅ Lista de {len(preguntas_list)} preguntas detectada")
-                # Formatear cada pregunta con número
-                preguntas_formateadas = []
-                for i, pregunta in enumerate(preguntas_list, 1):
-                    preguntas_formateadas.append(f"{i}. {pregunta}")
-                texto_preguntas = "\n\n".join(preguntas_formateadas)
-            else:
-                texto_preguntas = preguntas
-        except (json.JSONDecodeError, TypeError):
-            # Si no es JSON, usar como texto plano
-            logger.info("📝 Texto plano detectado")
-            texto_preguntas = preguntas
+            preguntas_list = json.loads(preguntas)
+            if not isinstance(preguntas_list, list):
+                preguntas_list = [preguntas]
+            logger.info(f"✅ {len(preguntas_list)} preguntas parseadas")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Error parseando JSON: {e}")
+            preguntas_list = preguntas.split('\n\n')
         
         # CONFIGURACIÓN DE LAYOUT
         margin_left = 350
         margin_right = 350
         margin_top = 350
-        paragraph_spacing = 85  # Espacio EXTRA entre preguntas
-        line_spacing = 65       # Espacio entre líneas de la misma pregunta
+        line_spacing = 65
+        option_spacing = 55  # Espacio entre opciones
+        question_spacing = 40  # Espacio antes de línea de respuesta
+        answer_line_height = 50
+        space_after_answer = 70
         max_width_px = a4_width - margin_left - margin_right
         
         y_text = margin_top
@@ -399,7 +371,7 @@ async def crear_hoja_preguntas(
         else:
             draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#1a5490')
         
-        y_text += 90
+        y_text += 85
         
         # TÍTULO DEL CUENTO
         if titulo_cuento:
@@ -408,10 +380,10 @@ async def crear_hoja_preguntas(
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
             draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill='#2C3E50')
-            y_text += 75
+            y_text += 70
         
         # LÍNEA SEPARADORA
-        line_margin = 300
+        line_margin = 450
         if estilo == "infantil":
             colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4']
             segment_width = (a4_width - 2 * line_margin) // len(colors)
@@ -422,78 +394,132 @@ async def crear_hoja_preguntas(
         else:
             draw.line([(line_margin, y_text), (a4_width - line_margin, y_text)], fill='#1a5490', width=3)
         
-        y_text += 60
+        y_text += 55
         
         # CAMPOS DE NOMBRE Y FECHA
         campos_y = y_text
-        
-        # Nombre
         draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill='#2C3E50')
         line_x_start = margin_left + 200
-        line_x_end = margin_left + 1000
-        draw.line([(line_x_start, campos_y + 55), (line_x_end, campos_y + 55)], fill='#2C3E50', width=2)
+        line_x_end = margin_left + 800
+        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill='#2C3E50', width=2)
         
-        # Fecha
-        fecha_x = a4_width - margin_right - 500
+        fecha_x = a4_width - margin_right - 400
         draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill='#2C3E50')
-        line_x_start = fecha_x + 150
+        line_x_start = fecha_x + 140
         line_x_end = a4_width - margin_right
-        draw.line([(line_x_start, campos_y + 55), (line_x_end, campos_y + 55)], fill='#2C3E50', width=2)
+        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill='#2C3E50', width=2)
         
         y_text += 120
         
-        # PREGUNTAS CON MARKDOWN
+        # DIBUJAR PREGUNTAS CON OPCIONES Y RESPUESTAS
         text_color = '#2C3E50'
-        preguntas_lines = wrap_text_with_markdown(preguntas, fonts, max_width_px, draw)
+        max_height = 3100
         
-        logger.info(f"📝 {len(preguntas_lines)} líneas de preguntas")
-        
-        max_height = 3200
-        for i, line in enumerate(preguntas_lines):
-            if y_text > max_height:
-                logger.warning(f"⚠️ Preguntas truncadas en línea {i+1}")
-                break
-            
-            draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
-            y_text += line_spacing
-
-
-        #####**********************
-        # 
-        #DIBUJAR PREGUNTAS CON MEJOR ESPACIADO
-        text_color = '#2C3E50'
-        max_height = 2900
-        
-        # Dividir por párrafos (cada pregunta)
-        paragraphs = texto_preguntas.split('\n\n')  # Doble salto = nueva pregunta
-        
-        logger.info(f"📝 {len(paragraphs)} preguntas detectadas")
+        logger.info(f"📝 Dibujando {len(preguntas_list)} preguntas")
         
         questions_drawn = 0
-        for idx, paragraph in enumerate(paragraphs):
-            if not paragraph.strip():
+        for idx, pregunta_completa in enumerate(preguntas_list):
+            if not pregunta_completa.strip():
                 continue
             
-            # Procesar cada pregunta (puede tener múltiples líneas)
-            paragraph_lines = wrap_text_with_markdown(paragraph, fonts, max_width_px, draw)
+            if y_text > max_height:
+                logger.warning(f"⚠️ Truncado en pregunta {idx+1}/{len(preguntas_list)}")
+                break
             
-            for line_idx, line in enumerate(paragraph_lines):
-                if y_text > max_height:
-                    logger.warning(f"⚠️ Truncado en pregunta {idx+1}/{len(paragraphs)}")
-                    break
+            # Separar pregunta de opciones (si las tiene)
+            # Las opciones están separadas por \n
+            partes = pregunta_completa.split('\n')
+            pregunta_principal = partes[0].strip()
+            opciones = [p.strip() for p in partes[1:] if p.strip() and p.strip().startswith(('a)', 'b)', 'c)', 'd)'))]
+            
+            # Limpiar numeración si ya viene
+            import re
+            pregunta_sin_numero = re.sub(r'^\d+\.\s*', '', pregunta_principal)
+            
+            # NÚMERO DE PREGUNTA
+            numero = str(idx + 1)
+            
+            if estilo == "infantil":
+                # Círculo decorativo
+                circle_x = margin_left - 35
+                circle_y = y_text + 18
+                circle_radius = 26
                 
-                draw_formatted_line(draw, margin_left, y_text, line, fonts, text_color)
+                draw.ellipse(
+                    [(circle_x - circle_radius, circle_y - circle_radius),
+                     (circle_x + circle_radius, circle_y + circle_radius)],
+                    fill='#FF6B9D',
+                    outline='#E91E63',
+                    width=3
+                )
+                
+                bbox = draw.textbbox((0, 0), numero, font=font_numero)
+                num_width = bbox[2] - bbox[0]
+                num_height = bbox[3] - bbox[1]
+                draw.text(
+                    (circle_x - num_width//2, circle_y - num_height//2 - 3),
+                    numero,
+                    font=font_numero,
+                    fill='white'
+                )
+                
+                x_pregunta = margin_left + 40
+            else:
+                draw.text((margin_left - 50, y_text), f"{numero}.", font=font_numero, fill='#1a5490')
+                x_pregunta = margin_left
+            
+            # TEXTO DE LA PREGUNTA
+            max_width_pregunta = max_width_px - 40
+            pregunta_lines = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, draw)
+            
+            for line in pregunta_lines:
+                draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color)
                 y_text += line_spacing
             
-            # Espacio extra entre preguntas
-            y_text += paragraph_spacing
-            questions_drawn += 1
+            # OPCIONES (si las hay)
+            if opciones:
+                y_text += 15  # Pequeño espacio antes de opciones
+                
+                for opcion in opciones:
+                    if y_text > max_height:
+                        break
+                    
+                    # Dibujar opción con indentación
+                    x_opcion = x_pregunta + 60
+                    opcion_lines = wrap_text_with_markdown(opcion, fonts_opciones, max_width_pregunta - 60, draw)
+                    
+                    for line in opcion_lines:
+                        draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color)
+                        y_text += option_spacing
+                
+                y_text += question_spacing
+            else:
+                # Si no hay opciones, es pregunta abierta
+                y_text += question_spacing + 20
             
-            if y_text > max_height:
-                break
+            # LÍNEA PARA RESPUESTA (solo para preguntas sin opciones o después de opciones)
+            if y_text + answer_line_height < max_height:
+                line_start_x = margin_left + 50
+                line_end_x = a4_width - margin_right - 50
+                
+                if estilo == "infantil":
+                    # Línea punteada
+                    dot_spacing = 20
+                    dot_radius = 3
+                    for x in range(line_start_x, line_end_x, dot_spacing):
+                        color = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4'][idx % 4]
+                        draw.ellipse([(x - dot_radius, y_text - dot_radius),
+                                      (x + dot_radius, y_text + dot_radius)],
+                                    fill=color)
+                else:
+                    draw.line([(line_start_x, y_text), (line_end_x, y_text)], 
+                             fill='#2C3E50', width=2)
+                
+                y_text += answer_line_height + space_after_answer
+            
+            questions_drawn += 1
         
-        logger.info(f"✅ {questions_drawn}/{len(paragraphs)} preguntas dibujadas")
-        #####**********************    
+        logger.info(f"✅ {questions_drawn}/{len(preguntas_list)} preguntas dibujadas")
         
         # GUARDAR
         output_path = "/tmp/hoja_preguntas.png"
@@ -508,7 +534,7 @@ async def crear_hoja_preguntas(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @app.get("/")
 def root():
     return {
