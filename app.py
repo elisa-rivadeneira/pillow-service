@@ -298,9 +298,42 @@ async def crear_hoja_preguntas(
         logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
         
+        # if canvas.mode != 'RGB':
+        #     canvas = canvas.convert('RGB')
+
+        # ===== AQUÍ INSERTAS EL CÓDIGO NUEVO =====
         if canvas.mode != 'RGB':
             canvas = canvas.convert('RGB')
-        
+
+        # Convertir a RGBA para agregar transparencia
+        canvas = canvas.convert('RGBA')
+
+        # Crear overlay blanco semitransparente
+        overlay = Image.new('RGBA', (a4_width, a4_height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+
+        # Área del contenido (ajusta márgenes para no tapar decoraciones)
+        content_margin_top = 250
+        content_margin_bottom = 450  # Más margen para no tapar a los niños de abajo
+        content_margin_left = 280
+        content_margin_right = 280
+
+        # Rectángulo blanco semitransparente
+        overlay_draw.rectangle(
+            [
+                (content_margin_left, content_margin_top),
+                (a4_width - content_margin_right, a4_height - content_margin_bottom)
+            ],
+            fill=(255, 255, 255, 210)  # Blanco con 82% opacidad
+        )
+
+        # Combinar canvas con overlay
+        canvas = Image.alpha_composite(canvas, overlay)
+
+        # Volver a RGB
+        canvas = canvas.convert('RGB')
+        # ===== FIN DEL CÓDIGO NUEVO =====
+                
         draw = ImageDraw.Draw(canvas)
         
         # FUENTES
