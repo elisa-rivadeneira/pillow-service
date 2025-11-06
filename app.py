@@ -374,6 +374,11 @@ async def crear_hoja_preguntas(
             preguntas_list = json.loads(preguntas)
             if not isinstance(preguntas_list, list):
                 preguntas_list = [preguntas]
+
+            # ✨ NUEVA LÍNEA: Si es un array con 1 elemento, separar por \n\n
+            if len(preguntas_list) == 1 and '\n\n' in preguntas_list[0]:
+                preguntas_list = preguntas_list[0].split('\n\n')
+
             logger.info(f"✅ {len(preguntas_list)} preguntas parseadas")
         except (json.JSONDecodeError, TypeError) as e:
             logger.error(f"Error parseando JSON: {e}")
