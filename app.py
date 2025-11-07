@@ -51,32 +51,57 @@ def draw_formatted_line(draw, x, y, line, fonts, color):
     return current_x - x
 
 def wrap_text_with_markdown(text, fonts, max_width_px, draw):
-    """Divide texto respetando markdown"""
-    words = text.split()
-    lines = []
-    current_line_words = []
+    """Divide texto respetando markdown Y PÁRRAFOS"""
     
-    for word in words:
-        test_line = ' '.join(current_line_words + [word])
-        segments = parse_markdown_line(test_line)
+    # 1. DETECTAR PÁRRAFOS (separados por \n\n o múltiples \n)
+    # Primero normalizamos: múltiples \n se convierten en \n\n
+    text_normalized = re.sub(r'\n{3,}', '\n\n', text)  # 3+ saltos = 2 saltos
+    paragraphs = text_normalized.split('\n\n')
+    
+    all_lines = []
+    
+    logger.info(f"📄 Detectados {len(paragraphs)} párrafos")
+    
+    for para_idx, para in enumerate(paragraphs):
+        if not para.strip():
+            continue
         
-        total_width = 0
-        for seg_text, seg_style in segments:
-            font = fonts.get(seg_style, fonts['normal'])
-            bbox = draw.textbbox((0, 0), seg_text, font=font)
-            total_width += bbox[2] - bbox[0]
+        # 2. Procesar líneas individuales dentro del párrafo (saltos simples \n)
+        para_lines = para.split('\n')
         
-        if total_width <= max_width_px:
-            current_line_words.append(word)
-        else:
+        for line_idx, line in enumerate(para_lines):
+            if not line.strip():
+                continue
+            
+            # 3. Dividir cada línea en palabras y ajustar por ancho
+            words = line.strip().split()
+            current_line_words = []
+            
+            for word in words:
+                test_line = ' '.join(current_line_words + [word])
+                segments = parse_markdown_line(test_line)
+                
+                total_width = 0
+                for seg_text, seg_style in segments:
+                    font = fonts.get(seg_style, fonts['normal'])
+                    bbox = draw.textbbox((0, 0), seg_text, font=font)
+                    total_width += bbox[2] - bbox[0]
+                
+                if total_width <= max_width_px:
+                    current_line_words.append(word)
+                else:
+                    if current_line_words:
+                        all_lines.append((' '.join(current_line_words), 'text'))
+                    current_line_words = [word]
+            
             if current_line_words:
-                lines.append(' '.join(current_line_words))
-            current_line_words = [word]
+                all_lines.append((' '.join(current_line_words), 'text'))
+        
+        # 4. AGREGAR LÍNEA VACÍA ENTRE PÁRRAFOS (excepto después del último)
+        if para_idx < len(paragraphs) - 1:
+            all_lines.append(('', 'paragraph_break'))
     
-    if current_line_words:
-        lines.append(' '.join(current_line_words))
-    
-    return lines
+    return all_lines
 
 def draw_stars(draw, a4_width, y_position):
     """Dibuja estrellitas decorativas"""
@@ -119,11 +144,11 @@ async def crear_ficha(
     imagen: UploadFile = File(...),
     texto_cuento: str = Form(...),
     titulo: str = Form(default=""),
-    header_height: int = Form(default=1150),  # ← MÁS PEQUEÑO (antes 1300)
+    header_height: int = Form(default=1150),
     estilo: str = Form(default="infantil"),
     imagen_modo: str = Form(default="crop")
 ):
-    logger.info(f"📥 v4.6-KIDS: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v5.1-PARRAFOS: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -153,18 +178,13 @@ async def crear_ficha(
                 header_img_final = header_img_resized.crop((left, 0, left + a4_width, header_height))
                 logger.info(f"📐 Imagen horizontal recortada (centrada)")
             else:
-                # Imagen más vertical o cuadrada → recorte centrado verticalmente (modo cover)
                 new_width = a4_width
                 new_height = int(a4_width / aspect_ratio)
                 header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-                # Centramos verticalmente en el header
                 top_crop = max(0, (new_height - header_height) // 2)
                 bottom_crop = top_crop + header_height
-
                 header_img_final = header_img_resized.crop((0, top_crop, a4_width, bottom_crop))
                 logger.info(f"📐 Imagen vertical centrada (recorte: top={top_crop}px)")
-
             
             canvas.paste(header_img_final, (0, 0))
         
@@ -193,7 +213,8 @@ async def crear_ficha(
         margin_left = 160
         margin_right = 160
         margin_top = header_height + 85
-        line_spacing = 80  # MÁS ESPACIADO
+        line_spacing = 80  # Espaciado normal entre líneas
+        paragraph_spacing = 120  # ✨ NUEVO: Espaciado extra entre párrafos
         max_width_px = a4_width - margin_left - margin_right
         max_height = 3380
         
@@ -235,24 +256,35 @@ async def crear_ficha(
             
             y_text += 75
         
-        # TEXTO CON MARKDOWN
+        # TEXTO CON MARKDOWN Y PÁRRAFOS
         text_color = '#2C3E50' if estilo == "infantil" else '#2c2c2c'
         texto_lines = wrap_text_with_markdown(texto_cuento, fonts, max_width_px, draw)
         
-        logger.info(f"📝 {len(texto_lines)} líneas de texto")
+        logger.info(f"📝 {len(texto_lines)} líneas totales (con párrafos)")
         
         lines_drawn = 0
-        for i, line in enumerate(texto_lines):
+        is_first_line = True
+        
+        for i, (line, line_type) in enumerate(texto_lines):
             if y_text > max_height:
                 logger.warning(f"⚠️ Truncado en {i+1}/{len(texto_lines)} (faltan {len(texto_lines)-i})")
                 break
             
-            x_pos = margin_left + 120 if i == 0 else margin_left
+            # Si es un salto de párrafo, agregar espacio extra
+            if line_type == 'paragraph_break':
+                y_text += paragraph_spacing
+                is_first_line = True  # El siguiente será inicio de párrafo
+                continue
+            
+            # Indentar primera línea de cada párrafo
+            x_pos = margin_left + 120 if is_first_line else margin_left
+            
             draw_formatted_line(draw, x_pos, y_text, line, fonts, text_color)
             y_text += line_spacing
             lines_drawn += 1
+            is_first_line = False
         
-        logger.info(f"✅ {lines_drawn}/{len(texto_lines)} líneas dibujadas")
+        logger.info(f"✅ {lines_drawn} líneas de texto dibujadas")
         
         if estilo == "infantil":
             draw_wavy_border(draw, a4_width, a4_height)
@@ -260,7 +292,7 @@ async def crear_ficha(
         output_path = "/tmp/ficha_completa.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
-        logger.info("✅ Ficha creada")
+        logger.info("✅ Ficha creada con párrafos")
         
         return FileResponse(output_path, media_type="image/png", filename="ficha_educativa.png")
     
@@ -298,10 +330,6 @@ async def crear_hoja_preguntas(
         logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
         
-        # if canvas.mode != 'RGB':
-        #     canvas = canvas.convert('RGB')
-
-        # ===== AQUÍ INSERTAS EL CÓDIGO NUEVO =====
         if canvas.mode != 'RGB':
             canvas = canvas.convert('RGB')
 
@@ -314,7 +342,7 @@ async def crear_hoja_preguntas(
 
         # Área del contenido (ajusta márgenes para no tapar decoraciones)
         content_margin_top = 250
-        content_margin_bottom = 450  # Más margen para no tapar a los niños de abajo
+        content_margin_bottom = 450
         content_margin_left = 280
         content_margin_right = 280
 
@@ -324,7 +352,7 @@ async def crear_hoja_preguntas(
                 (content_margin_left, content_margin_top),
                 (a4_width - content_margin_right, a4_height - content_margin_bottom)
             ],
-            fill=(255, 255, 255, 210)  # Blanco con 82% opacidad
+            fill=(255, 255, 255, 210)
         )
 
         # Combinar canvas con overlay
@@ -332,7 +360,6 @@ async def crear_hoja_preguntas(
 
         # Volver a RGB
         canvas = canvas.convert('RGB')
-        # ===== FIN DEL CÓDIGO NUEVO =====
                 
         draw = ImageDraw.Draw(canvas)
         
@@ -375,7 +402,7 @@ async def crear_hoja_preguntas(
             if not isinstance(preguntas_list, list):
                 preguntas_list = [preguntas]
 
-            # ✨ NUEVA LÍNEA: Si es un array con 1 elemento, separar por \n\n
+            # Si es un array con 1 elemento, separar por \n\n
             if len(preguntas_list) == 1 and '\n\n' in preguntas_list[0]:
                 preguntas_list = preguntas_list[0].split('\n\n')
 
@@ -389,8 +416,8 @@ async def crear_hoja_preguntas(
         margin_right = 350
         margin_top = 350
         line_spacing = 65
-        option_spacing = 55  # Espacio entre opciones
-        question_spacing = 40  # Espacio antes de línea de respuesta
+        option_spacing = 55
+        question_spacing = 40
         answer_line_height = 50
         space_after_answer = 70
         max_width_px = a4_width - margin_left - margin_right
@@ -464,8 +491,7 @@ async def crear_hoja_preguntas(
                 logger.warning(f"⚠️ Truncado en pregunta {idx+1}/{len(preguntas_list)}")
                 break
             
-            # Separar pregunta de opciones (si las tiene)
-            # Las opciones están separadas por \n
+            # Separar pregunta de opciones
             partes = pregunta_completa.split('\n')
             pregunta_principal = partes[0].strip()
             opciones = [p.strip() for p in partes[1:] if p.strip() and p.strip().startswith(('a)', 'b)', 'c)', 'd)'))]
@@ -478,7 +504,6 @@ async def crear_hoja_preguntas(
             numero = str(idx + 1)
             
             if estilo == "infantil":
-                # Círculo decorativo
                 circle_x = margin_left - 35
                 circle_y = y_text + 18
                 circle_radius = 26
@@ -508,40 +533,44 @@ async def crear_hoja_preguntas(
             
             # TEXTO DE LA PREGUNTA
             max_width_pregunta = max_width_px - 40
-            pregunta_lines = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, draw)
             
-            for line in pregunta_lines:
+            # ✨ USAR LA VERSIÓN MEJORADA que respeta saltos de línea
+            pregunta_lines_with_type = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, draw)
+            
+            for line, line_type in pregunta_lines_with_type:
+                if line_type == 'paragraph_break':
+                    y_text += 40  # Espacio entre párrafos en preguntas
+                    continue
                 draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color)
                 y_text += line_spacing
             
             # OPCIONES (si las hay)
             if opciones:
-                y_text += 15  # Pequeño espacio antes de opciones
+                y_text += 15
                 
                 for opcion in opciones:
                     if y_text > max_height:
                         break
                     
-                    # Dibujar opción con indentación
                     x_opcion = x_pregunta + 60
-                    opcion_lines = wrap_text_with_markdown(opcion, fonts_opciones, max_width_pregunta - 60, draw)
+                    opcion_lines_with_type = wrap_text_with_markdown(opcion, fonts_opciones, max_width_pregunta - 60, draw)
                     
-                    for line in opcion_lines:
+                    for line, line_type in opcion_lines_with_type:
+                        if line_type == 'paragraph_break':
+                            continue
                         draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color)
                         y_text += option_spacing
                 
                 y_text += question_spacing
             else:
-                # Si no hay opciones, es pregunta abierta
                 y_text += question_spacing + 20
             
-            # LÍNEA PARA RESPUESTA (solo para preguntas sin opciones o después de opciones)
+            # LÍNEA PARA RESPUESTA
             if y_text + answer_line_height < max_height:
                 line_start_x = margin_left + 50
                 line_end_x = a4_width - margin_right - 50
                 
                 if estilo == "infantil":
-                    # Línea punteada
                     dot_spacing = 20
                     dot_radius = 3
                     for x in range(line_start_x, line_end_x, dot_spacing):
@@ -577,15 +606,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "5.0-DUAL",
+        "version": "5.1-PARRAFOS",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento",
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (CON PÁRRAFOS)",
             "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo"
         },
-        "message": "Dual service: reading worksheets + question sheets"
+        "message": "Dual service: reading worksheets + question sheets (SOPORTE COMPLETO DE PÁRRAFOS)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "5.0"}
+    return {"status": "healthy", "version": "5.1-PARRAFOS"}
