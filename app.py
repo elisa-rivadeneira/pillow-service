@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v5.6-FIX-RGBA: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v5.7-FIX-PREGUNTAS: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -212,7 +212,7 @@ async def crear_ficha(
         a4_width = 2480
         a4_height = 3508
         
-        # CAMBIO CLAVE 1: Inicializar canvas en RGBA para poder usar alpha_composite
+        # Inicializar canvas en RGBA para poder usar alpha_composite
         canvas = Image.new('RGBA', (a4_width, a4_height), '#FFFEF0' if estilo == "infantil" else 'white')
         
         # PROCESAMIENTO DE IMAGEN: Implementación de COVER CENTRADO
@@ -316,8 +316,7 @@ async def crear_ficha(
             # Componer la capa semitransparente sobre el canvas (Ambos son RGBA)
             canvas = Image.alpha_composite(canvas, alpha_img) 
 
-            # CAMBIO CLAVE 2: Volver a obtener el Draw después de alpha_composite
-            # (El Draw anterior podría estar desactualizado)
+            # Volver a obtener el Draw después de alpha_composite
             draw = ImageDraw.Draw(canvas)
             
             title_color = (20, 20, 20) # Color de texto oscuro para buen contraste
@@ -325,9 +324,7 @@ async def crear_ficha(
             # Dibujar Título Capitalizado
             draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_color)
             
-        # Antes de dibujar texto, si el canvas sigue en RGBA, Pillow puede fallar al dibujar 
-        # con Draw. Convertirlo a RGB ahora que la transparencia está integrada.
-        # Es decir, convertimos RGBA -> RGB ANTES del bucle principal de dibujado de texto.
+        # Convertir RGBA -> RGB antes del bucle principal de dibujado de texto.
         canvas = canvas.convert('RGB')
         draw = ImageDraw.Draw(canvas) # Vuelve a crear el objeto Draw para el nuevo modo
         # ----------------------------------------------------------------------
@@ -484,15 +481,12 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    logger.info(f"📝 v5.6-FIX-RGBA-PREGUNTAS: {len(preguntas)} caracteres")
+    logger.info(f"📝 v5.9-TITULO-3D-INFANTIL: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
         img_bytes = await imagen_borde.read()
         border_img = Image.open(io.BytesIO(img_bytes))
-        
-        if border_img.mode != 'RGB':
-            border_img = border_img.convert('RGB')
         
         # Dimensiones A4
         a4_width = 2480
@@ -500,40 +494,57 @@ async def crear_hoja_preguntas(
         
         # ADAPTAR IMAGEN A A4 (ESTIRAR)
         logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
+        # Inicializar canvas como RGBA para permitir la composición de la capa semi-transparente
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
         
-        if canvas.mode != 'RGB':
-            canvas = canvas.convert('RGB')
+        if canvas.mode != 'RGBA':
+            canvas = canvas.convert('RGBA')
 
-        # Convertir a RGBA para agregar transparencia
-        canvas = canvas.convert('RGBA')
-
-        # Crear overlay blanco semitransparente
-        overlay = Image.new('RGBA', (a4_width, a4_height), (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-
-        # Área del contenido (ajusta márgenes para no tapar decoraciones)
-        content_margin_top = 250
-        content_margin_bottom = 450
-        content_margin_left = 280
-        content_margin_right = 280
-
-        # Rectángulo blanco semitransparente
-        overlay_draw.rectangle(
-            [
-                (content_margin_left, content_margin_top),
-                (a4_width - content_margin_right, a4_height - content_margin_bottom)
-            ],
-            fill=(255, 255, 255, 210)
-        )
-
-        # Combinar canvas con overlay
-        canvas = Image.alpha_composite(canvas, overlay)
-
-        # Volver a RGB
-        canvas = canvas.convert('RGB')
-                
-        draw = ImageDraw.Draw(canvas)
+        # ----------------------------------------------------------------------
+        # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE SOBRE EL ÁREA DEL TEXTO
+        # ----------------------------------------------------------------------
+        
+        # CONFIGURACIÓN DE LAYOUT (Ajustes para el área de contenido)
+        margin_left = 220
+        margin_right = 220
+        margin_top = 350
+        max_height = 3100 # Altura máxima para el texto
+        
+        # 1. Definir las coordenadas del área de contenido (donde va el texto/preguntas)
+        # Coordenadas X: Respetan margin_left y margin_right
+        content_x1 = margin_left 
+        content_x2 = a4_width - margin_right
+        
+        # Coordenadas Y: Desde debajo de la cabecera hasta el final máximo del contenido
+        content_y1 = margin_top - 50 # Un poco antes del encabezado "Comprensión Lectora"
+        content_y2 = max_height + 50 # Un poco después del final del texto
+        
+        # Crear una imagen temporal RGBA para la capa
+        alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
+        alpha_draw = ImageDraw.Draw(alpha_img)
+        
+        # Dibujar el rectángulo semi-transparente (Negro con ~40% de opacidad: 100/255)
+        fill_color = (0, 0, 0, 100) 
+        
+        # Aplicamos un pequeño padding a la capa semi-transparente para que el rectángulo
+        # se vea mejor estéticamente alrededor del texto
+        layer_padding = 40 
+        
+        rect_coords = [
+            (content_x1 - layer_padding, content_y1 - layer_padding),
+            (content_x2 + layer_padding, content_y2 + layer_padding)
+        ]
+        
+        alpha_draw.rectangle(rect_coords, fill=fill_color)
+        
+        # Componer la capa sobre el canvas. Esto es lo que pone la capa semi-transparente
+        # sobre la imagen de fondo, respetando el área de margen.
+        canvas = Image.alpha_composite(canvas, alpha_img)
+        # ----------------------------------------------------------------------
+        
+        # Convertir a RGB para dibujar texto (no queremos que el texto se vea afectado por alpha_composite)
+        canvas = canvas.convert('RGB') 
+        draw = ImageDraw.Draw(canvas) # Vuelve a crear el objeto Draw
         
         # FUENTES
         try:
@@ -585,10 +596,7 @@ async def crear_hoja_preguntas(
             logger.error(f"Error parseando JSON: {e}. Cayendo a split por \n\n.")
             preguntas_list = preguntas.split('\n\n')
         
-        # CONFIGURACIÓN DE LAYOUT
-        margin_left = 350
-        margin_right = 350
-        margin_top = 350
+        # CONFIGURACIÓN DE LAYOUT (AJUSTE DE MÁRGENES PARA USAR MÁS ESPACIO)
         line_spacing = 65
         option_spacing = 55
         question_spacing = 40
@@ -605,26 +613,45 @@ async def crear_hoja_preguntas(
         x_centered = (a4_width - text_width) // 2
         
         if estilo == "infantil":
+            # Para el texto del encabezado, usamos un color que contraste bien con la capa semi-transparente
+            text_color_header = '#FFF5EE' 
             draw.text((x_centered + 3, y_text + 3), encabezado, font=font_titulo, fill='#FFB6C1')
             draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#FF6B9D')
         else:
+            text_color_header = '#FFFFFF' 
             draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#1a5490')
         
         y_text += 85
         
         # TÍTULO DEL CUENTO
         if titulo_cuento:
-            # Aplicar capitalización de título también al título del cuento en la hoja de preguntas
             titulo_capitalizado = to_title_case(titulo_cuento)
             cuento_text = f'Cuento: "{titulo_capitalizado}"'
             bbox = draw.textbbox((0, 0), cuento_text, font=font_subtitulo)
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
-            draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill='#2C3E50')
+            
+            # --- NUEVO: EFECTO 3D/SHADOW PARA TÍTULO DEL CUENTO (INFANTIL) ---
+            if estilo == "infantil":
+                # Sombra (un poco más claro)
+                shadow_color = '#FFB6C1'
+                # Color principal (rosa vibrante)
+                main_color = '#FF6B9D'
+                
+                # Dibujar sombra (desplazado 3px)
+                draw.text((x_centered + 3, y_text + 3), cuento_text, font=font_subtitulo, fill=shadow_color)
+                # Dibujar texto principal
+                draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill=main_color)
+                
+            else:
+                # Si no es infantil, usar el estilo original (color claro)
+                draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill=text_color_header) 
+            # ------------------------------------------------------------------
+            
             y_text += 70
         
         # LÍNEA SEPARADORA
-        line_margin = 450
+        line_margin = margin_left + 100 
         if estilo == "infantil":
             colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4']
             segment_width = (a4_width - 2 * line_margin) // len(colors)
@@ -639,24 +666,22 @@ async def crear_hoja_preguntas(
         
         # CAMPOS DE NOMBRE Y FECHA
         campos_y = y_text
-        draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill='#2C3E50')
+        # Usamos un color claro para el texto que está sobre el fondo oscuro/semi-transparente
+        text_color = '#FFFFFF' 
+        draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill=text_color)
         line_x_start = margin_left + 200
         line_x_end = margin_left + 800
-        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill='#2C3E50', width=2)
+        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill=text_color, width=2)
         
         fecha_x = a4_width - margin_right - 400
-        draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill='#2C3E50')
+        draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill=text_color)
         line_x_start = fecha_x + 140
         line_x_end = a4_width - margin_right
-        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill='#2C3E50', width=2)
+        draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill=text_color, width=2)
         
         y_text += 120
         
         # DIBUJAR PREGUNTAS CON OPCIONES Y RESPUESTAS
-        text_color = '#2C3E50'
-        max_height = 3100
-        
-        logger.info(f"📝 Dibujando {len(preguntas_list)} preguntas")
         
         questions_drawn = 0
         for idx, pregunta_completa in enumerate(preguntas_list):
@@ -684,6 +709,7 @@ async def crear_hoja_preguntas(
                 circle_y = y_text + 18
                 circle_radius = 26
                 
+                # El círculo de número debe ir sobre la capa semi-transparente
                 draw.ellipse(
                     [(circle_x - circle_radius, circle_y - circle_radius),
                      (circle_x + circle_radius, circle_y + circle_radius)],
@@ -704,7 +730,7 @@ async def crear_hoja_preguntas(
                 
                 x_pregunta = margin_left + 40
             else:
-                draw.text((margin_left - 50, y_text), f"{numero}.", font=font_numero, fill='#1a5490')
+                draw.text((margin_left - 50, y_text), f"{numero}.", font=font_numero, fill=text_color)
                 x_pregunta = margin_left
             
             # TEXTO DE LA PREGUNTA
@@ -756,7 +782,7 @@ async def crear_hoja_preguntas(
                                      fill=color)
                 else:
                     draw.line([(line_start_x, y_text), (line_end_x, y_text)], 
-                             fill='#2C3E50', width=2)
+                             fill=text_color, width=2)
                 
                 y_text += answer_line_height + space_after_answer
             
@@ -765,6 +791,8 @@ async def crear_hoja_preguntas(
         logger.info(f"✅ {questions_drawn}/{len(preguntas_list)} preguntas dibujadas")
         
         # GUARDAR
+        # Antes de guardar, volvemos a RGB si no hay elementos RGBA complejos
+        canvas = canvas.convert('RGB')
         output_path = "/tmp/hoja_preguntas.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
@@ -782,15 +810,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "5.6-FIX-RGBA",
+        "version": "5.9-TITULO-3D-INFANTIL",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
             "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (COVER CENTRADO, título con fondo, DROP CAP, Title Case, FIX: Alpha Composite)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Title Case en el título del cuento)"
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Title Case, Capa semi-transparente, **NUEVO: Título del Cuento con efecto 3D/Shadow**)"
         },
         "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "5.6-FIX-RGBA"}
+    return {"status": "healthy", "version": "5.9-TITULO-3D-INFANTIL"}
