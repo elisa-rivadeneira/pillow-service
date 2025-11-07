@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v5.5-TITLE-CASE-APPLIED: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v5.6-FIX-RGBA: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -211,7 +211,9 @@ async def crear_ficha(
         
         a4_width = 2480
         a4_height = 3508
-        canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0' if estilo == "infantil" else 'white')
+        
+        # CAMBIO CLAVE 1: Inicializar canvas en RGBA para poder usar alpha_composite
+        canvas = Image.new('RGBA', (a4_width, a4_height), '#FFFEF0' if estilo == "infantil" else 'white')
         
         # PROCESAMIENTO DE IMAGEN: Implementación de COVER CENTRADO
         # -----------------------------------------------------------
@@ -241,9 +243,11 @@ async def crear_ficha(
             header_img_final = header_img_resized.crop((left_crop, 0, right_crop, new_height))
             logger.info(f"📐 Imagen escalada por alto y recortada horizontalmente (cover centrado): left={left_crop}")
             
+        # Pegar la imagen de cabecera (RGB) sobre el canvas (RGBA)
         canvas.paste(header_img_final, (0, 0))
         # -----------------------------------------------------------
         
+        # Crear un Draw en el canvas (RGBA)
         draw = ImageDraw.Draw(canvas)
         
         # FUENTES
@@ -302,20 +306,30 @@ async def crear_ficha(
                 (title_x + title_width + padding_x, title_y + title_height + padding_y)
             ]
             
-            # Crear una capa temporal para el fondo semitransparente
+            # Crear una capa temporal para el fondo semitransparente (RGBA)
             alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
             alpha_draw = ImageDraw.Draw(alpha_img)
             
-            # Dibuja el rectángulo blanco semitransparente con esquinas redondeadas
-            # Simular redondeo con un rectángulo simple para simplicidad
+            # Dibuja el rectángulo blanco semitransparente
             alpha_draw.rectangle(title_bg_rect, fill=(255, 255, 255, 180)) # 180 de opacidad
-            canvas.alpha_composite(alpha_img) # Componer la capa semitransparente
+            
+            # Componer la capa semitransparente sobre el canvas (Ambos son RGBA)
+            canvas = Image.alpha_composite(canvas, alpha_img) 
 
+            # CAMBIO CLAVE 2: Volver a obtener el Draw después de alpha_composite
+            # (El Draw anterior podría estar desactualizado)
+            draw = ImageDraw.Draw(canvas)
+            
             title_color = (20, 20, 20) # Color de texto oscuro para buen contraste
             
             # Dibujar Título Capitalizado
             draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_color)
             
+        # Antes de dibujar texto, si el canvas sigue en RGBA, Pillow puede fallar al dibujar 
+        # con Draw. Convertirlo a RGB ahora que la transparencia está integrada.
+        # Es decir, convertimos RGBA -> RGB ANTES del bucle principal de dibujado de texto.
+        canvas = canvas.convert('RGB')
+        draw = ImageDraw.Draw(canvas) # Vuelve a crear el objeto Draw para el nuevo modo
         # ----------------------------------------------------------------------
         # LÓGICA DE DIBUJADO DE TEXTO CON LETRA CAPITAL
         # ----------------------------------------------------------------------
@@ -470,7 +484,7 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    logger.info(f"📝 v5.5-PREGUNTAS: {len(preguntas)} caracteres")
+    logger.info(f"📝 v5.6-FIX-RGBA-PREGUNTAS: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -768,10 +782,10 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "5.5-TITLE-CASE-APPLIED",
+        "version": "5.6-FIX-RGBA",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (COVER CENTRADO, título con fondo, DROP CAP, Title Case)",
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (COVER CENTRADO, título con fondo, DROP CAP, Title Case, FIX: Alpha Composite)",
             "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Title Case en el título del cuento)"
         },
         "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
@@ -779,4 +793,4 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "5.5-TITLE-CASE-APPLIED"}
+    return {"status": "healthy", "version": "5.6-FIX-RGBA"}
