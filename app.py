@@ -59,7 +59,7 @@ def parse_markdown_line(line):
             segments.append((matched_text[3:-3], 'bold'))
         elif matched_text.startswith('**') and matched_text.endswith('**'):
             segments.append((matched_text[2:-2], 'bold'))
-        elif matched_text.startswith('*') and matched_text.endswith('*'):
+        elif matched_text.startswith('**') and matched_text.endswith('**'):
             segments.append((matched_text[1:-1], 'bold'))
         
         last_end = match.end()
@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v5.7-FIX-PREGUNTAS: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v6.2-CORRECCIÓN-TITULO: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -252,11 +252,12 @@ async def crear_ficha(
         
         # FUENTES
         try:
-            # Usar DejaVu Sans (normal y bold)
+            # Fuentes del CUENTO (perfectas según el usuario)
             font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
             font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 75)
-            # Usar DejaVu Serif para la Letra Capital para un mejor contraste estético
+            # Título del Cuento: Grande y con efecto infantil
+            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 90) 
+            # Letra Capital
             font_drop_cap_base = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 150) 
             logger.info("✅ Fuentes cargadas")
         except Exception as e:
@@ -310,8 +311,8 @@ async def crear_ficha(
             alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
             alpha_draw = ImageDraw.Draw(alpha_img)
             
-            # Dibuja el rectángulo blanco semitransparente
-            alpha_draw.rectangle(title_bg_rect, fill=(255, 255, 255, 180)) # 180 de opacidad
+            # Dibuja el rectángulo BLANCO semitransparente (180 de opacidad)
+            alpha_draw.rectangle(title_bg_rect, fill=(255, 255, 255, 180)) 
             
             # Componer la capa semitransparente sobre el canvas (Ambos son RGBA)
             canvas = Image.alpha_composite(canvas, alpha_img) 
@@ -319,10 +320,20 @@ async def crear_ficha(
             # Volver a obtener el Draw después de alpha_composite
             draw = ImageDraw.Draw(canvas)
             
-            title_color = (20, 20, 20) # Color de texto oscuro para buen contraste
+            # APLICAR EFECTO INFANTIL AL TÍTULO DEL CUENTO (el que el usuario pidió cambiar)
+            title_main_color = '#FFD93D'  # Amarillo brillante (Playful)
+            title_outline_color = '#E91E63' # Rosa Oscuro (Contraste)
+            outline_width = 4
             
-            # Dibujar Título Capitalizado
-            draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_color)
+            # Dibujar contorno para efecto de dulzura/dibujo animado
+            for dx in range(-outline_width, outline_width + 1):
+                for dy in range(-outline_width, outline_width + 1):
+                    # Dibujar contorno circular
+                    if dx * dx + dy * dy >= outline_width * outline_width: 
+                        draw.text((title_x + dx, title_y + dy), titulo_capitalizado, font=font_titulo, fill=title_outline_color)
+            
+            # Dibujar Título principal (Playful color)
+            draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_main_color)
             
         # Convertir RGBA -> RGB antes del bucle principal de dibujado de texto.
         canvas = canvas.convert('RGB')
@@ -364,9 +375,6 @@ async def crear_ficha(
             DROP_CAP_LINES = 3 # Ocupará 3 líneas de altura.
             
             # Ajuste de tamaño de fuente para que la altura total de la caja del texto
-            # cubra exactamente las 3 líneas, ajustado por el line_spacing.
-            # Este es un ajuste empírico para que la parte superior e inferior coincidan
-            # con el flujo del texto circundante.
             drop_cap_size = line_spacing * (DROP_CAP_LINES + 0.3) 
             
             try:
@@ -481,7 +489,9 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    logger.info(f"📝 v5.9-TITULO-3D-INFANTIL: {len(preguntas)} caracteres")
+    # NOTA: Este endpoint usa el estilo '3D y rosa' original si 'estilo' es 'infantil',
+    # que es el que el usuario confirma que SÍ le gustaba.
+    logger.info(f"📝 v6.2-CORRECCIÓN-TITULO: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -501,7 +511,7 @@ async def crear_hoja_preguntas(
             canvas = canvas.convert('RGBA')
 
         # ----------------------------------------------------------------------
-        # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE SOBRE EL ÁREA DEL TEXTO
+        # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE BLANCA
         # ----------------------------------------------------------------------
         
         # CONFIGURACIÓN DE LAYOUT (Ajustes para el área de contenido)
@@ -511,23 +521,19 @@ async def crear_hoja_preguntas(
         max_height = 3100 # Altura máxima para el texto
         
         # 1. Definir las coordenadas del área de contenido (donde va el texto/preguntas)
-        # Coordenadas X: Respetan margin_left y margin_right
         content_x1 = margin_left 
         content_x2 = a4_width - margin_right
         
-        # Coordenadas Y: Desde debajo de la cabecera hasta el final máximo del contenido
-        content_y1 = margin_top - 50 # Un poco antes del encabezado "Comprensión Lectora"
-        content_y2 = max_height + 50 # Un poco después del final del texto
+        content_y1 = margin_top - 50 
+        content_y2 = max_height + 50 
         
         # Crear una imagen temporal RGBA para la capa
         alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
         alpha_draw = ImageDraw.Draw(alpha_img)
         
-        # Dibujar el rectángulo semi-transparente (Negro con ~40% de opacidad: 100/255)
-        fill_color = (0, 0, 0, 100) 
+        # Dibujar el rectángulo semi-transparente BLANCO (Casi opaco: 230/255)
+        fill_color = (255, 255, 255, 230) # Blanco 90% opaco
         
-        # Aplicamos un pequeño padding a la capa semi-transparente para que el rectángulo
-        # se vea mejor estéticamente alrededor del texto
         layer_padding = 40 
         
         rect_coords = [
@@ -537,26 +543,35 @@ async def crear_hoja_preguntas(
         
         alpha_draw.rectangle(rect_coords, fill=fill_color)
         
-        # Componer la capa sobre el canvas. Esto es lo que pone la capa semi-transparente
-        # sobre la imagen de fondo, respetando el área de margen.
+        # Componer la capa sobre el canvas.
         canvas = Image.alpha_composite(canvas, alpha_img)
         # ----------------------------------------------------------------------
         
-        # Convertir a RGB para dibujar texto (no queremos que el texto se vea afectado por alpha_composite)
+        # Convertir a RGB y volver a obtener el Draw.
         canvas = canvas.convert('RGB') 
-        draw = ImageDraw.Draw(canvas) # Vuelve a crear el objeto Draw
+        draw = ImageDraw.Draw(canvas) 
         
-        # FUENTES
+        # FUENTES Y ESTILO
+        
+        # Color del texto (gris oscuro, plomito) para contrastar con el fondo blanco
+        text_color = '#333333' 
+        
         try:
-            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
-            font_subtitulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
-            font_preguntas = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 45)
-            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
-            font_numero = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-            font_opciones = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 42)
-            logger.info("✅ Fuentes cargadas")
+            # Título principal (Comprensión Lectora) - Original: 3D, azul claro/juguetón
+            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 85) 
+            
+            # Título del Cuento: 
+            font_subtitulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70) 
+            
+            # Fuentes para el texto de las preguntas y opciones (más grandes y dulces)
+            font_preguntas = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50) 
+            font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52) 
+            font_numero = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 58) 
+            font_opciones = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48) 
+            
+            logger.info("✅ Fuentes cargadas y ajustadas para infantil")
         except Exception as e:
-            logger.error(f"❌ Error fuentes: {e}")
+            logger.error(f"❌ Error fuentes: {e}. Usando default.")
             font_titulo = ImageFont.load_default()
             font_subtitulo = ImageFont.load_default()
             font_preguntas = ImageFont.load_default()
@@ -565,17 +580,17 @@ async def crear_hoja_preguntas(
             font_opciones = ImageFont.load_default()
         
         fonts = {
-            'normal': font_preguntas,
+            'normal': font_preguntas, 
             'bold': font_bold,
             'italic': font_bold,
             'bold_italic': font_bold
         }
         
         fonts_opciones = {
-            'normal': font_opciones,
-            'bold': font_opciones,
-            'italic': font_opciones,
-            'bold_italic': font_opciones
+            'normal': font_opciones, 
+            'bold': font_bold,
+            'italic': font_bold,
+            'bold_italic': font_bold
         }
         
         # PROCESAR PREGUNTAS
@@ -597,31 +612,39 @@ async def crear_hoja_preguntas(
             preguntas_list = preguntas.split('\n\n')
         
         # CONFIGURACIÓN DE LAYOUT (AJUSTE DE MÁRGENES PARA USAR MÁS ESPACIO)
-        line_spacing = 65
-        option_spacing = 55
-        question_spacing = 40
-        answer_line_height = 50
-        space_after_answer = 70
+        line_spacing = 75 
+        option_spacing = 65 
+        question_spacing = 50
+        answer_line_height = 60 
+        space_after_answer = 80
         max_width_px = a4_width - margin_left - margin_right
         
         y_text = margin_top
         
-        # ENCABEZADO
+        # ENCABEZADO "Comprensión Lectora"
         encabezado = "📚 Comprensión Lectora"
         bbox = draw.textbbox((0, 0), encabezado, font=font_titulo)
         text_width = bbox[2] - bbox[0]
         x_centered = (a4_width - text_width) // 2
         
         if estilo == "infantil":
-            # Para el texto del encabezado, usamos un color que contraste bien con la capa semi-transparente
-            text_color_header = '#FFF5EE' 
-            draw.text((x_centered + 3, y_text + 3), encabezado, font=font_titulo, fill='#FFB6C1')
-            draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#FF6B9D')
+            # Restaurado el estilo original '3D y rosa' que SÍ gustaba
+            shadow_color = '#1a5490' # Azul oscuro para sombra/contorno
+            main_color = '#42A5F5' # Azul claro/juguetón
+            outline_width = 4
+            
+            # Dibujar contorno
+            for dx in range(-outline_width, outline_width + 1):
+                for dy in range(-outline_width, outline_width + 1):
+                    if dx * dx + dy * dy >= outline_width * outline_width:
+                        draw.text((x_centered + dx, y_text + dy), encabezado, font=font_titulo, fill=shadow_color)
+            
+            # Dibujar texto principal
+            draw.text((x_centered, y_text), encabezado, font=font_titulo, fill=main_color)
         else:
-            text_color_header = '#FFFFFF' 
             draw.text((x_centered, y_text), encabezado, font=font_titulo, fill='#1a5490')
         
-        y_text += 85
+        y_text += 105
         
         # TÍTULO DEL CUENTO
         if titulo_cuento:
@@ -631,24 +654,11 @@ async def crear_hoja_preguntas(
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
             
-            # --- NUEVO: EFECTO 3D/SHADOW PARA TÍTULO DEL CUENTO (INFANTIL) ---
-            if estilo == "infantil":
-                # Sombra (un poco más claro)
-                shadow_color = '#FFB6C1'
-                # Color principal (rosa vibrante)
-                main_color = '#FF6B9D'
-                
-                # Dibujar sombra (desplazado 3px)
-                draw.text((x_centered + 3, y_text + 3), cuento_text, font=font_subtitulo, fill=shadow_color)
-                # Dibujar texto principal
-                draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill=main_color)
-                
-            else:
-                # Si no es infantil, usar el estilo original (color claro)
-                draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill=text_color_header) 
-            # ------------------------------------------------------------------
+            # Restaurado el estilo original (simple y oscuro) para este subtítulo
+            # ya que el usuario SÍ quería el efecto infantil en el otro archivo, no aquí.
+            draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill='#333333') 
             
-            y_text += 70
+            y_text += 80
         
         # LÍNEA SEPARADORA
         line_margin = margin_left + 100 
@@ -666,8 +676,7 @@ async def crear_hoja_preguntas(
         
         # CAMPOS DE NOMBRE Y FECHA
         campos_y = y_text
-        # Usamos un color claro para el texto que está sobre el fondo oscuro/semi-transparente
-        text_color = '#FFFFFF' 
+        # Texto de campos en el color principal (gris oscuro)
         draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill=text_color)
         line_x_start = margin_left + 200
         line_x_end = margin_left + 800
@@ -709,12 +718,12 @@ async def crear_hoja_preguntas(
                 circle_y = y_text + 18
                 circle_radius = 26
                 
-                # El círculo de número debe ir sobre la capa semi-transparente
+                # Círculo 'Dulce' para el número de pregunta
                 draw.ellipse(
                     [(circle_x - circle_radius, circle_y - circle_radius),
                      (circle_x + circle_radius, circle_y + circle_radius)],
-                    fill='#FF6B9D',
-                    outline='#E91E63',
+                    fill='#FF6B9D', # Rosa Fuerte
+                    outline='#E91E63', # Rosa más oscuro para el borde
                     width=3
                 )
                 
@@ -725,7 +734,7 @@ async def crear_hoja_preguntas(
                     (circle_x - num_width//2, circle_y - num_height//2 - 3),
                     numero,
                     font=font_numero,
-                    fill='white'
+                    fill='white' # Blanco para el número
                 )
                 
                 x_pregunta = margin_left + 40
@@ -742,6 +751,7 @@ async def crear_hoja_preguntas(
                 if line_type == 'paragraph_break':
                     y_text += 40  
                     continue
+                # Las preguntas se dibujan con el nuevo text_color (gris oscuro)
                 draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color, max_width_px=max_width_pregunta)
                 y_text += line_spacing
             
@@ -760,6 +770,7 @@ async def crear_hoja_preguntas(
                     for line, line_type in opcion_lines_with_type:
                         if line_type == 'paragraph_break':
                             continue
+                        # Las opciones se dibujan con el nuevo text_color (gris oscuro) y fuente más amigable
                         draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color, max_width_px=max_width_opcion)
                         y_text += option_spacing
                 
@@ -791,7 +802,6 @@ async def crear_hoja_preguntas(
         logger.info(f"✅ {questions_drawn}/{len(preguntas_list)} preguntas dibujadas")
         
         # GUARDAR
-        # Antes de guardar, volvemos a RGB si no hay elementos RGBA complejos
         canvas = canvas.convert('RGB')
         output_path = "/tmp/hoja_preguntas.png"
         canvas.save(output_path, quality=95, dpi=(300, 300))
@@ -810,15 +820,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "5.9-TITULO-3D-INFANTIL",
+        "version": "6.2-CORRECCIÓN-TITULO",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (COVER CENTRADO, título con fondo, DROP CAP, Title Case, FIX: Alpha Composite)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Title Case, Capa semi-transparente, **NUEVO: Título del Cuento con efecto 3D/Shadow**)"
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Título del cuento con el efecto 'dulce' Amarillo/Rosa)",
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Encabezado principal '3D y rosa' restaurado)"
         },
         "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "5.9-TITULO-3D-INFANTIL"}
+    return {"status": "healthy", "version": "6.2-CORRECCIÓN-TITULO"}
