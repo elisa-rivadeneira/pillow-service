@@ -59,8 +59,8 @@ def parse_markdown_line(line):
             segments.append((matched_text[3:-3], 'bold'))
         elif matched_text.startswith('**') and matched_text.endswith('**'):
             segments.append((matched_text[2:-2], 'bold'))
-        elif matched_text.startswith('**') and matched_text.endswith('**'):
-            segments.append((matched_text[1:-1], 'bold'))
+        elif matched_text.startswith('*') and matched_text.endswith('*'):
+            segments.append((matched_text[1:-1], 'bold')) # Corregido: asumimos *texto* también es bold si no hay italic separado
         
         last_end = match.end()
     
@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v6.2-CORRECCIÓN-TITULO: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v6.3-AJUSTE-TITULO: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -255,11 +255,13 @@ async def crear_ficha(
             # Fuentes del CUENTO (perfectas según el usuario)
             font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
             font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-            # Título del Cuento: Grande y con efecto infantil
-            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 90) 
+            
+            # Título del Cuento: **DejaVuSerif-Bold es la alternativa manuscrita disponible**
+            font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 100) 
+            
             # Letra Capital
             font_drop_cap_base = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 150) 
-            logger.info("✅ Fuentes cargadas")
+            logger.info("✅ Fuentes cargadas (Título actualizado a Serif-Bold)")
         except Exception as e:
             logger.error(f"❌ Error fuentes: {e}")
             font_normal = ImageFont.load_default()
@@ -290,22 +292,27 @@ async def crear_ficha(
             titulo_capitalizado = to_title_case(titulo)
             logger.info(f"Título original: '{titulo}' -> Capitalizado: '{titulo_capitalizado}'")
             
-            title_x = 100 
-            title_y = 100
+            title_x_bg = 100 # Punto de inicio del fondo
+            title_y_bg = 100
             
-            # Calcular tamaño del bounding box del título
+            # Calcular tamaño del bounding box del título con la nueva fuente
             bbox_title = draw.textbbox((0, 0), titulo_capitalizado, font=font_titulo)
             title_width = bbox_title[2] - bbox_title[0]
             title_height = bbox_title[3] - bbox_title[1]
 
-            # Dibuja un rectángulo semitransparente detrás del título
-            padding_x = 30
-            padding_y = 20
+            # AJUSTE DE MARGEN (CORREGIDO)
+            padding_x = 40 
+            padding_y = 30
             
+            # Coordenadas del rectángulo de fondo
             title_bg_rect = [
-                (title_x - padding_x, title_y - padding_y),
-                (title_x + title_width + padding_x, title_y + title_height + padding_y)
+                (title_x_bg, title_y_bg),
+                (title_x_bg + title_width + 2 * padding_x, title_y_bg + title_height + 2 * padding_y)
             ]
+            
+            # Coordenadas donde empieza el texto (centrado dentro del padding)
+            title_offset_x = title_x_bg + padding_x
+            title_offset_y = title_y_bg + padding_y
             
             # Crear una capa temporal para el fondo semitransparente (RGBA)
             alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
@@ -320,9 +327,9 @@ async def crear_ficha(
             # Volver a obtener el Draw después de alpha_composite
             draw = ImageDraw.Draw(canvas)
             
-            # APLICAR EFECTO INFANTIL AL TÍTULO DEL CUENTO (el que el usuario pidió cambiar)
-            title_main_color = '#FFD93D'  # Amarillo brillante (Playful)
-            title_outline_color = '#E91E63' # Rosa Oscuro (Contraste)
+            # APLICAR EFECTO INFANTIL AL TÍTULO DEL CUENTO (ROSA FUERTE/PÚRPURA)
+            title_main_color = '#E91E63'  # Rosa Fuerte/Fucsia
+            title_outline_color = '#8E24AA' # Púrpura Profundo (Para sombra/contorno)
             outline_width = 4
             
             # Dibujar contorno para efecto de dulzura/dibujo animado
@@ -330,10 +337,10 @@ async def crear_ficha(
                 for dy in range(-outline_width, outline_width + 1):
                     # Dibujar contorno circular
                     if dx * dx + dy * dy >= outline_width * outline_width: 
-                        draw.text((title_x + dx, title_y + dy), titulo_capitalizado, font=font_titulo, fill=title_outline_color)
+                        draw.text((title_offset_x + dx, title_offset_y + dy), titulo_capitalizado, font=font_titulo, fill=title_outline_color)
             
             # Dibujar Título principal (Playful color)
-            draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_main_color)
+            draw.text((title_offset_x, title_offset_y), titulo_capitalizado, font=font_titulo, fill=title_main_color)
             
         # Convertir RGBA -> RGB antes del bucle principal de dibujado de texto.
         canvas = canvas.convert('RGB')
@@ -489,9 +496,8 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    # NOTA: Este endpoint usa el estilo '3D y rosa' original si 'estilo' es 'infantil',
-    # que es el que el usuario confirma que SÍ le gustaba.
-    logger.info(f"📝 v6.2-CORRECCIÓN-TITULO: {len(preguntas)} caracteres")
+    # NOTA: Este endpoint mantiene los estilos originales (3D azul, etc.) que SÍ gustaban
+    logger.info(f"📝 v6.3-AJUSTE-TITULO: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -569,7 +575,7 @@ async def crear_hoja_preguntas(
             font_numero = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 58) 
             font_opciones = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48) 
             
-            logger.info("✅ Fuentes cargadas y ajustadas para infantil")
+            logger.info("✅ Fuentes cargadas para hoja de preguntas")
         except Exception as e:
             logger.error(f"❌ Error fuentes: {e}. Usando default.")
             font_titulo = ImageFont.load_default()
@@ -621,14 +627,14 @@ async def crear_hoja_preguntas(
         
         y_text = margin_top
         
-        # ENCABEZADO "Comprensión Lectora"
+        # ENCABEZADO "Comprensión Lectora" (MANTENIENDO ESTILO 3D AZUL/ROSA)
         encabezado = "📚 Comprensión Lectora"
         bbox = draw.textbbox((0, 0), encabezado, font=font_titulo)
         text_width = bbox[2] - bbox[0]
         x_centered = (a4_width - text_width) // 2
         
         if estilo == "infantil":
-            # Restaurado el estilo original '3D y rosa' que SÍ gustaba
+            # Estilo original '3D y rosa' restaurado
             shadow_color = '#1a5490' # Azul oscuro para sombra/contorno
             main_color = '#42A5F5' # Azul claro/juguetón
             outline_width = 4
@@ -654,8 +660,7 @@ async def crear_hoja_preguntas(
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
             
-            # Restaurado el estilo original (simple y oscuro) para este subtítulo
-            # ya que el usuario SÍ quería el efecto infantil en el otro archivo, no aquí.
+            # Subtítulo sin efecto para contraste
             draw.text((x_centered, y_text), cuento_text, font=font_subtitulo, fill='#333333') 
             
             y_text += 80
@@ -820,15 +825,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "6.2-CORRECCIÓN-TITULO",
+        "version": "6.3-AJUSTE-TITULO",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Título del cuento con el efecto 'dulce' Amarillo/Rosa)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Encabezado principal '3D y rosa' restaurado)"
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Título del cuento con efecto 'manuscrito' Rosa Fuerte/Púrpura y márgenes ajustados)",
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Estilos originales)"
         },
         "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "6.2-CORRECCIÓN-TITULO"}
+    return {"status": "healthy", "version": "6.3-AJUSTE-TITULO"}
