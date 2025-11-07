@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v6.6-FIX-BG-AREA: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -497,7 +497,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v6.6-FIX-BG-AREA: {len(preguntas)} caracteres")
+    logger.info(f"📝 v6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -511,26 +511,33 @@ async def crear_hoja_preguntas(
         # ADAPTAR IMAGEN A A4 (ESTIRAR)
         logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
         # Inicializar canvas como RGBA para permitir la composición de la capa semi-transparente
+        # FIX 1: La imagen de fondo cubre 100% de la hoja A4.
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
         
         if canvas.mode != 'RGBA':
             canvas = canvas.convert('RGBA')
 
         # ----------------------------------------------------------------------
-        # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE BLANCA
-        # FIX 1: Limitar la capa blanca al área de contenido central.
+        # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE BLANCA CENTRAL
+        # FIX 2: La capa blanca solo cubre la zona CENTRAL del texto, 
+        # respetando los márgenes para dejar visible el borde temático de la IA.
         # ----------------------------------------------------------------------
         
-        # CONFIGURACIÓN DE LAYOUT (Establecer un margen de borde visible)
-        # Margen de borde temático que queremos dejar visible (e.g., 250px)
-        border_margin_x = 180 
-        border_margin_y = 150 
+        # Márgenes para la capa blanca (debe ser más grande que el margen de texto)
+        BACKGROUND_MARGIN_X = 180 
+        BACKGROUND_MARGIN_Y = 150
         
         # Coordenadas del área de contenido central (el rectangulo blanco)
-        content_x1 = border_margin_x
-        content_x2 = a4_width - border_margin_x
-        content_y1 = border_margin_y
-        content_y2 = a4_height - border_margin_y
+        content_x1 = BACKGROUND_MARGIN_X
+        content_x2 = a4_width - BACKGROUND_MARGIN_X
+        content_y1 = BACKGROUND_MARGIN_Y
+        content_y2 = a4_height - BACKGROUND_MARGIN_Y
+        
+        # Rectángulo que solo cubre el centro
+        rect_coords = [
+            (content_x1, content_y1),
+            (content_x2, content_y2)
+        ]
         
         # Crear una imagen temporal RGBA para la capa
         alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
@@ -538,12 +545,6 @@ async def crear_hoja_preguntas(
         
         # Dibujar el rectángulo semi-transparente BLANCO (Casi opaco: 230/255)
         fill_color = (255, 255, 255, 230) # Blanco 90% opaco
-        
-        # Las coordenadas del rectángulo definen el área central
-        rect_coords = [
-            (content_x1, content_y1),
-            (content_x2, content_y2)
-        ]
         
         alpha_draw.rectangle(rect_coords, fill=fill_color)
         
@@ -617,11 +618,16 @@ async def crear_hoja_preguntas(
         
         # CONFIGURACIÓN DE LAYOUT
         
-        # Margen de texto interno al área blanca
-        margin_left_text = content_x1 + 100 
-        margin_right_text = content_x1 + 100 
+        # Margen de texto interno (ajustado para que el texto NO toque los bordes)
+        TEXT_MARGIN_X = 250 
+        TEXT_MARGIN_Y_TOP = 200
         
-        margin_top = content_y1 + 150 # Iniciar texto dentro del área blanca
+        # El ancho máximo de texto se define por los márgenes
+        text_start_x = TEXT_MARGIN_X 
+        text_end_x = a4_width - TEXT_MARGIN_X
+        max_width_px = text_end_x - text_start_x
+        
+        margin_top = TEXT_MARGIN_Y_TOP # Iniciar texto con margen superior
         
         line_spacing = 75 
         option_spacing = 65 
@@ -629,17 +635,8 @@ async def crear_hoja_preguntas(
         answer_line_height = 60 
         space_after_answer = 80
         
-        # El ancho máximo de texto se calcula restando el margen interno del área blanca
-        max_width_px = content_x2 - content_x1 - (margin_left_text - content_x1) - (content_x2 - (a4_width - margin_right_text))
-        max_width_px = a4_width - (2 * border_margin_x) - (2 * (margin_left_text - content_x1))
-        
-        # El ancho de texto se define por los márgenes absolutos del contenido
-        text_start_x = margin_left_text 
-        text_end_x = a4_width - margin_right_text
-        max_width_px = text_end_x - text_start_x
-        
-        # Altura máxima: margen superior del área blanca menos el margen inferior
-        max_height = content_y2 - 80 
+        # Altura máxima: margen inferior
+        max_height = a4_height - TEXT_MARGIN_Y_TOP + 100 
 
         y_text = margin_top
         
@@ -716,10 +713,8 @@ async def crear_hoja_preguntas(
         # DIBUJAR PREGUNTAS CON OPCIONES Y RESPUESTAS
         
         questions_drawn = 0
-        # FIX 2: Mantener el ajuste del margen para que el círculo quede *dentro* del área blanca
-        # Se establece una posición de inicio para el número, que está *dentro* del margen de contenido.
-        # El texto de la pregunta empieza en text_start_x
-        CIRCLE_START_X = text_start_x - 50 # Un poco antes del inicio del texto (para el círculo)
+        # La posición del círculo se ajusta ligeramente ANTES de donde empieza el texto (text_start_x)
+        CIRCLE_START_X = text_start_x - 50 
         
         for idx, pregunta_completa in enumerate(preguntas_list):
             if not pregunta_completa.strip():
@@ -787,7 +782,7 @@ async def crear_hoja_preguntas(
                     y_text += 40  
                     continue
                 # Las preguntas se dibujan con el nuevo text_color (gris oscuro)
-                draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color, max_width_px=max_width_pregunta)
+                draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color, max_width_pregunta)
                 y_text += line_spacing
             
             # OPCIONES (si las hay)
@@ -806,7 +801,7 @@ async def crear_hoja_preguntas(
                         if line_type == 'paragraph_break':
                             continue
                         # Las opciones se dibujan con el nuevo text_color (gris oscuro) y fuente más amigable
-                        draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color, max_width_px=max_width_opcion)
+                        draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color, max_width_opcion)
                         y_text += option_spacing
                 
                 y_text += question_spacing
@@ -861,15 +856,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "6.6-FIX-BG-AREA",
+        "version": "6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
             "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Soporte para Letra Capital y Justificación)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Capa blanca LIMITADA al área de contenido central y números DENTRO del área blanca)"
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (BG Imagen 100% y Capa blanca CENTRAL)"
         },
-        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO) - FIX BG AREA Y NÚMEROS DE PREGUNTA"
+        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO) - FIX BG IMAGEN 100% Y CAPA BLANCA CENTRAL"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "6.6-FIX-BG-AREA"}
+    return {"status": "healthy", "version": "6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL"}
