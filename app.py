@@ -200,7 +200,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v6.4-AJUSTE-MARGIN-FINAL-FICHA: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v6.6-FIX-BG-AREA: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -497,7 +497,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v6.4-AJUSTE-MARGIN-FINAL: {len(preguntas)} caracteres")
+    logger.info(f"📝 v6.6-FIX-BG-AREA: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -518,25 +518,19 @@ async def crear_hoja_preguntas(
 
         # ----------------------------------------------------------------------
         # PASO CLAVE: DIBUJAR CAPA SEMI-TRANSPARENTE BLANCA
+        # FIX 1: Limitar la capa blanca al área de contenido central.
         # ----------------------------------------------------------------------
         
-        # CONFIGURACIÓN DE LAYOUT (Ajustes para el área de contenido)
-        # AJUSTE DE MÁRGENES LATERALES (aumentados de 220 a 280)
-        margin_left = 280 
-        margin_right = 280
-        margin_top = 350
+        # CONFIGURACIÓN DE LAYOUT (Establecer un margen de borde visible)
+        # Margen de borde temático que queremos dejar visible (e.g., 250px)
+        border_margin_x = 180 
+        border_margin_y = 150 
         
-        # *** AJUSTE PARA MÁRGEN INFERIOR (Aumentado de 3100 a 3300) ***
-        # Esto asegura que la última pregunta y su línea de respuesta tengan espacio
-        max_height = 3300 
-        
-        # 1. Definir las coordenadas del área de contenido (donde va el texto/preguntas)
-        content_x1 = margin_left 
-        content_x2 = a4_width - margin_right
-        
-        content_y1 = margin_top - 50 
-        # Ajustado para coincidir con la nueva max_height, dando más espacio abajo
-        content_y2 = max_height + 50 
+        # Coordenadas del área de contenido central (el rectangulo blanco)
+        content_x1 = border_margin_x
+        content_x2 = a4_width - border_margin_x
+        content_y1 = border_margin_y
+        content_y2 = a4_height - border_margin_y
         
         # Crear una imagen temporal RGBA para la capa
         alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
@@ -545,11 +539,10 @@ async def crear_hoja_preguntas(
         # Dibujar el rectángulo semi-transparente BLANCO (Casi opaco: 230/255)
         fill_color = (255, 255, 255, 230) # Blanco 90% opaco
         
-        layer_padding = 40 
-        
+        # Las coordenadas del rectángulo definen el área central
         rect_coords = [
-            (content_x1 - layer_padding, content_y1 - layer_padding),
-            (content_x2 + layer_padding, content_y2 + layer_padding)
+            (content_x1, content_y1),
+            (content_x2, content_y2)
         ]
         
         alpha_draw.rectangle(rect_coords, fill=fill_color)
@@ -623,13 +616,31 @@ async def crear_hoja_preguntas(
             preguntas_list = preguntas.split('\n\n')
         
         # CONFIGURACIÓN DE LAYOUT
+        
+        # Margen de texto interno al área blanca
+        margin_left_text = content_x1 + 100 
+        margin_right_text = content_x1 + 100 
+        
+        margin_top = content_y1 + 150 # Iniciar texto dentro del área blanca
+        
         line_spacing = 75 
         option_spacing = 65 
         question_spacing = 50
         answer_line_height = 60 
         space_after_answer = 80
-        max_width_px = a4_width - margin_left - margin_right
         
+        # El ancho máximo de texto se calcula restando el margen interno del área blanca
+        max_width_px = content_x2 - content_x1 - (margin_left_text - content_x1) - (content_x2 - (a4_width - margin_right_text))
+        max_width_px = a4_width - (2 * border_margin_x) - (2 * (margin_left_text - content_x1))
+        
+        # El ancho de texto se define por los márgenes absolutos del contenido
+        text_start_x = margin_left_text 
+        text_end_x = a4_width - margin_right_text
+        max_width_px = text_end_x - text_start_x
+        
+        # Altura máxima: margen superior del área blanca menos el margen inferior
+        max_height = content_y2 - 80 
+
         y_text = margin_top
         
         # ENCABEZADO "Comprensión Lectora" (MANTENIENDO ESTILO 3D AZUL/ROSA)
@@ -671,32 +682,32 @@ async def crear_hoja_preguntas(
             y_text += 80
         
         # LÍNEA SEPARADORA
-        line_margin = margin_left + 100 
+        line_margin = text_start_x + 80 
         if estilo == "infantil":
             colors = ['#FF6B9D', '#FFD93D', '#6BCF7F', '#4ECDC4']
-            segment_width = (a4_width - 2 * line_margin) // len(colors)
+            segment_width = (text_end_x - line_margin - 80) // len(colors)
             for i, color in enumerate(colors):
                 x1 = line_margin + i * segment_width
                 x2 = x1 + segment_width
                 draw.rectangle([(x1, y_text), (x2, y_text + 6)], fill=color)
         else:
-            draw.line([(line_margin, y_text), (a4_width - line_margin, y_text)], fill='#1a5490', width=3)
+            draw.line([(line_margin, y_text), (text_end_x - 80, y_text)], fill='#1a5490', width=3)
         
         y_text += 55
         
         # CAMPOS DE NOMBRE Y FECHA
         campos_y = y_text
         # Texto de campos en el color principal (gris oscuro)
-        draw.text((margin_left, campos_y), "Nombre:", font=font_preguntas, fill=text_color)
-        line_x_start = margin_left + 200
-        line_x_end = margin_left + 800
+        draw.text((text_start_x, campos_y), "Nombre:", font=font_preguntas, fill=text_color)
+        line_x_start = text_start_x + 200
+        line_x_end = text_start_x + 800
         # Dibujar línea un poco debajo del texto
         draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill=text_color, width=2)
         
-        fecha_x = a4_width - margin_right - 400
+        fecha_x = text_end_x - 400
         draw.text((fecha_x, campos_y), "Fecha:", font=font_preguntas, fill=text_color)
         line_x_start = fecha_x + 140
-        line_x_end = a4_width - margin_right
+        line_x_end = text_end_x
         # Dibujar línea un poco debajo del texto
         draw.line([(line_x_start, campos_y + 50), (line_x_end, campos_y + 50)], fill=text_color, width=2)
         
@@ -705,12 +716,16 @@ async def crear_hoja_preguntas(
         # DIBUJAR PREGUNTAS CON OPCIONES Y RESPUESTAS
         
         questions_drawn = 0
+        # FIX 2: Mantener el ajuste del margen para que el círculo quede *dentro* del área blanca
+        # Se establece una posición de inicio para el número, que está *dentro* del margen de contenido.
+        # El texto de la pregunta empieza en text_start_x
+        CIRCLE_START_X = text_start_x - 50 # Un poco antes del inicio del texto (para el círculo)
+        
         for idx, pregunta_completa in enumerate(preguntas_list):
             if not pregunta_completa.strip():
                 continue
             
             # Verificar si hay espacio para la siguiente pregunta
-            # Se estima la altura necesaria (pregunta + espacio de respuesta)
             estimated_height_needed = line_spacing * 2 + space_after_answer 
             
             if y_text + estimated_height_needed > max_height:
@@ -729,12 +744,8 @@ async def crear_hoja_preguntas(
             # NÚMERO DE PREGUNTA
             numero = str(idx + 1)
             
-            # --- AJUSTE DE POSICIÓN ---
-            # Posición de inicio del texto
-            TEXT_START_X = margin_left + 40 # Inicia un poco después del margin_left para dejar espacio al número/círculo
-            
             if estilo == "infantil":
-                circle_x = margin_left - 35
+                circle_x = CIRCLE_START_X
                 circle_y = y_text + 18
                 circle_radius = 26
                 
@@ -757,17 +768,19 @@ async def crear_hoja_preguntas(
                     fill='white' # Blanco para el número
                 )
                 
-                x_pregunta = TEXT_START_X
+                # El texto de la pregunta empieza donde debería iniciar el texto
+                x_pregunta = text_start_x
             else:
-                # Dibujar número en el margen izquierdo
-                draw.text((margin_left, y_text), f"{numero}.", font=font_numero, fill=text_color)
-                # El texto principal empieza un poco a la derecha del número
-                x_pregunta = margin_left + 70 
+                # Dibujar número en la posición de inicio del círculo (que está antes del texto)
+                draw.text((CIRCLE_START_X + 15, y_text), f"{numero}.", font=font_numero, fill=text_color)
+                # El texto principal empieza en el inicio del texto
+                x_pregunta = text_start_x 
             
             # TEXTO DE LA PREGUNTA
-            max_width_pregunta = a4_width - x_pregunta - margin_right # Calcula el ancho restante
+            max_width_pregunta = max_width_px
             
-            pregunta_lines_with_type = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, draw)
+            temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1))) 
+            pregunta_lines_with_type = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, temp_draw)
             
             for line, line_type in pregunta_lines_with_type:
                 if line_type == 'paragraph_break':
@@ -786,8 +799,8 @@ async def crear_hoja_preguntas(
                         break
                     
                     x_opcion = x_pregunta + 60
-                    max_width_opcion = a4_width - x_opcion - margin_right
-                    opcion_lines_with_type = wrap_text_with_markdown(opcion, fonts_opciones, max_width_opcion, draw)
+                    max_width_opcion = max_width_px - 60
+                    opcion_lines_with_type = wrap_text_with_markdown(opcion, fonts_opciones, max_width_opcion, temp_draw)
                     
                     for line, line_type in opcion_lines_with_type:
                         if line_type == 'paragraph_break':
@@ -805,8 +818,8 @@ async def crear_hoja_preguntas(
             line_y = y_text 
             
             if line_y < max_height:
-                line_start_x = margin_left + 50
-                line_end_x = a4_width - margin_right - 50
+                line_start_x = text_start_x + 50
+                line_end_x = text_end_x - 50
                 
                 if estilo == "infantil":
                     dot_spacing = 20
@@ -848,15 +861,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "6.4-AJUSTE-MARGIN-FINAL",
+        "version": "6.6-FIX-BG-AREA",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
             "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Soporte para Letra Capital y Justificación)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Márgenes laterales y espacio inferior ajustados)"
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Capa blanca LIMITADA al área de contenido central y números DENTRO del área blanca)"
         },
-        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
+        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO) - FIX BG AREA Y NÚMEROS DE PREGUNTA"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "6.4-AJUSTE-MARGIN-FINAL"}
+    return {"status": "healthy", "version": "6.6-FIX-BG-AREA"}
