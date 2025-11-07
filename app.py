@@ -10,6 +10,39 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+def to_title_case(text: str) -> str:
+    """
+    Convierte un string a Title Case (Capitalización de Título), donde la 
+    primera letra de cada palabra importante se pone en mayúscula.
+    Se mantienen en minúscula artículos, preposiciones cortas y conjunciones.
+    """
+    if not text:
+        return ""
+
+    # Palabras funcionales cortas que deben estar en minúscula (en español)
+    minor_words = [
+        'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', # Artículos
+        'de', 'a', 'en', 'por', 'con', 'sin', 'sobre', 'tras', # Preposiciones
+        'y', 'o', 'ni', 'pero', 'mas', 'que' # Conjunciones y relativos
+    ]
+
+    words = text.lower().split()
+    title_cased_words = []
+    
+    for i, word in enumerate(words):
+        # La primera palabra siempre va capitalizada
+        if i == 0 or i == len(words) - 1:
+            title_cased_words.append(word.capitalize())
+        # Las palabras que no son "menores" se capitalizan
+        elif word not in minor_words:
+            title_cased_words.append(word.capitalize())
+        # Las palabras "menores" (artículos, preposiciones, etc.) se dejan en minúscula
+        else:
+            title_cased_words.append(word)
+
+    return " ".join(title_cased_words)
+
+
 def parse_markdown_line(line):
     """Parsea markdown en una línea"""
     segments = []
@@ -51,13 +84,22 @@ def draw_formatted_line(draw, x, y, line, fonts, color, max_width_px=None):
         
         for seg_text, seg_style in segments:
             font = fonts.get(seg_style, fonts['normal'])
-            bbox = draw.textbbox((0, 0), seg_text, font=font)
-            total_text_width_with_default_spaces += bbox[2] - bbox[0]
+            # Usar textlength para ser más preciso y evitar el overhead de bbox
+            try:
+                text_width = draw.textlength(seg_text, font=font)
+                total_text_width_with_default_spaces += text_width
+            except AttributeError:
+                # Fallback para versiones antiguas de Pillow o fuentes no cargadas
+                bbox = draw.textbbox((0, 0), seg_text, font=font)
+                total_text_width_with_default_spaces += bbox[2] - bbox[0]
+                
             num_spaces += seg_text.count(' ')
         
         # Aplicar justificación si el texto es significativo y necesita rellenar el ancho
+        # (El texto no debe ser demasiado corto para justificar)
         if num_spaces > 0 and (total_text_width_with_default_spaces / max_width_px > 0.7):
             remaining_width = max_width_px - total_text_width_with_default_spaces
+            # El espacio extra se divide entre el número de gaps (los espacios)
             extra_space_per_gap = remaining_width / num_spaces
     
     # 2. Dibujar y distribuir el espacio extra
@@ -66,8 +108,12 @@ def draw_formatted_line(draw, x, y, line, fonts, color, max_width_px=None):
         
         draw.text((current_x, y), text, font=font, fill=color)
         
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
+        # Calcular el ancho del texto dibujado (sin contar espacios)
+        try:
+            text_width = draw.textlength(text, font=font)
+        except AttributeError:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
         
         current_x += text_width
         
@@ -105,11 +151,10 @@ def wrap_text_with_markdown(text, fonts, max_width_px, draw):
                 total_width = 0
                 for seg_text, seg_style in segments:
                     font = fonts.get(seg_style, fonts['normal'])
-                    # Usar el bbox para calcular el ancho total
+                    # Usar bbox para cálculo de ancho dentro del bucle
                     try:
                         bbox = draw.textbbox((0, 0), seg_text, font=font)
                     except Exception:
-                        # Fallback simple si la fuente no está cargada correctamente
                         bbox = (0, 0, len(seg_text) * 20, 0) 
                         
                     total_width += bbox[2] - bbox[0]
@@ -153,9 +198,9 @@ async def crear_ficha(
     titulo: str = Form(default=""),
     header_height: int = Form(default=1150),
     estilo: str = Form(default="infantil"),
-    imagen_modo: str = Form(default="crop")
+    # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v5.3-DROP-CAP: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v5.5-TITLE-CASE-APPLIED: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -168,52 +213,54 @@ async def crear_ficha(
         a4_height = 3508
         canvas = Image.new('RGB', (a4_width, a4_height), '#FFFEF0' if estilo == "infantil" else 'white')
         
-        # PROCESAMIENTO DE IMAGEN
-        # ... (La lógica de recorte y estiramiento se mantiene) ...
-        if imagen_modo == "stretch":
-            header_img_final = header_img.resize((a4_width, header_height), Image.Resampling.LANCZOS)
-            canvas.paste(header_img_final, (0, 0))
-            logger.info("📐 Imagen estirada a ancho completo")
-        else:
-            aspect_ratio = header_img.width / header_img.height
-            target_aspect = a4_width / header_height
+        # PROCESAMIENTO DE IMAGEN: Implementación de COVER CENTRADO
+        # -----------------------------------------------------------
+        target_aspect = a4_width / header_height
+        image_aspect = header_img.width / header_img.height
+
+        if image_aspect < target_aspect:  
+            # La imagen es más "alta" (más estrecha) que el contenedor. Escalar por ancho.
+            new_width = a4_width
+            new_height = int(a4_width / image_aspect)
+            header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            if aspect_ratio > target_aspect:
-                new_height = header_height
-                new_width = int(header_height * aspect_ratio)
-                header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                left = (new_width - a4_width) // 2
-                header_img_final = header_img_resized.crop((left, 0, left + a4_width, header_height))
-                logger.info(f"📐 Imagen horizontal recortada (centrada)")
-            else:
-                new_width = a4_width
-                new_height = int(a4_width / aspect_ratio)
-                header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                top_crop = max(0, (new_height - header_height) // 2)
-                bottom_crop = top_crop + header_height
-                header_img_final = header_img_resized.crop((0, top_crop, a4_width, bottom_crop))
-                logger.info(f"📐 Imagen vertical centrada (recorte: top={top_crop}px)")
+            # Recortar verticalmente, centrado: (new_height - header_height) / 2
+            top_crop = max(0, (new_height - header_height) // 2)
+            bottom_crop = top_crop + header_height
+            header_img_final = header_img_resized.crop((0, top_crop, new_width, bottom_crop))
+            logger.info(f"📐 Imagen escalada por ancho y recortada verticalmente (cover centrado): top={top_crop}")
+        else:  
+            # La imagen es más "ancha" (más baja) que el contenedor. Escalar por alto.
+            new_height = header_height
+            new_width = int(header_height * image_aspect)
+            header_img_resized = header_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            canvas.paste(header_img_final, (0, 0))
+            # Recortar horizontalmente, centrado: (new_width - a4_width) // 2
+            left_crop = max(0, (new_width - a4_width) // 2)
+            right_crop = left_crop + a4_width
+            header_img_final = header_img_resized.crop((left_crop, 0, right_crop, new_height))
+            logger.info(f"📐 Imagen escalada por alto y recortada horizontalmente (cover centrado): left={left_crop}")
+            
+        canvas.paste(header_img_final, (0, 0))
+        # -----------------------------------------------------------
         
         draw = ImageDraw.Draw(canvas)
         
         # FUENTES
         try:
-            # Fuentes de texto normal y negrita
+            # Usar DejaVu Sans (normal y bold)
             font_normal = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
             font_bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-            # Fuente del título
             font_titulo = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 75)
-            # Fuente para la Letra Capital (se usa Serif para contraste)
-            font_drop_cap = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 150)
+            # Usar DejaVu Serif para la Letra Capital para un mejor contraste estético
+            font_drop_cap_base = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 150) 
             logger.info("✅ Fuentes cargadas")
         except Exception as e:
             logger.error(f"❌ Error fuentes: {e}")
             font_normal = ImageFont.load_default()
             font_bold = ImageFont.load_default()
             font_titulo = ImageFont.load_default()
-            font_drop_cap = ImageFont.load_default()
+            font_drop_cap_base = ImageFont.load_default()
         
         fonts = {
             'normal': font_normal,
@@ -225,23 +272,49 @@ async def crear_ficha(
         # LAYOUT
         margin_left = 160
         margin_right = 160
-        line_spacing = 80 # Altura de línea normal
+        line_spacing = 80 
         paragraph_spacing = 40  
         max_width_px = a4_width - margin_left - margin_right
         max_height = 3380
 
-        # Coordenada Y donde empieza el texto
         y_text = header_height + 85 
         
-        # TÍTULO (Superpuesto en la imagen)
+        # TÍTULO (Superpuesto en la imagen con fondo semitransparente)
         if titulo:
+            # APLICAR CAPITALIZACIÓN DE TÍTULO
+            titulo_capitalizado = to_title_case(titulo)
+            logger.info(f"Título original: '{titulo}' -> Capitalizado: '{titulo_capitalizado}'")
+            
             title_x = 100 
             title_y = 100
-            shadow_color = (0, 0, 0)
-            title_color = (255, 255, 255) 
             
-            draw.text((title_x + 3, title_y + 3), titulo, font=font_titulo, fill=shadow_color)
-            draw.text((title_x, title_y), titulo, font=font_titulo, fill=title_color)
+            # Calcular tamaño del bounding box del título
+            bbox_title = draw.textbbox((0, 0), titulo_capitalizado, font=font_titulo)
+            title_width = bbox_title[2] - bbox_title[0]
+            title_height = bbox_title[3] - bbox_title[1]
+
+            # Dibuja un rectángulo semitransparente detrás del título
+            padding_x = 30
+            padding_y = 20
+            
+            title_bg_rect = [
+                (title_x - padding_x, title_y - padding_y),
+                (title_x + title_width + padding_x, title_y + title_height + padding_y)
+            ]
+            
+            # Crear una capa temporal para el fondo semitransparente
+            alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
+            alpha_draw = ImageDraw.Draw(alpha_img)
+            
+            # Dibuja el rectángulo blanco semitransparente con esquinas redondeadas
+            # Simular redondeo con un rectángulo simple para simplicidad
+            alpha_draw.rectangle(title_bg_rect, fill=(255, 255, 255, 180)) # 180 de opacidad
+            canvas.alpha_composite(alpha_img) # Componer la capa semitransparente
+
+            title_color = (20, 20, 20) # Color de texto oscuro para buen contraste
+            
+            # Dibujar Título Capitalizado
+            draw.text((title_x, title_y), titulo_capitalizado, font=font_titulo, fill=title_color)
             
         # ----------------------------------------------------------------------
         # LÓGICA DE DIBUJADO DE TEXTO CON LETRA CAPITAL
@@ -249,86 +322,86 @@ async def crear_ficha(
         
         text_color = '#2C3E50' if estilo == "infantil" else '#2c2c2c'
         
-        # 1. Procesar el texto completo en líneas
-        temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1))) # Objeto para cálculo de ancho
+        # 1. Procesar el texto completo en líneas (dummy draw para cálculo de ancho)
+        temp_draw = ImageDraw.Draw(Image.new('RGB', (1, 1))) 
         texto_lines = wrap_text_with_markdown(texto_cuento, fonts, max_width_px, temp_draw)
         
-        # 2. Encontrar la primera línea de texto
+        # 2. Encontrar la primera línea de texto real para la letra capital
         first_text_line_index = -1
         for i, (line, line_type) in enumerate(texto_lines):
             if line_type == 'text' and line.strip():
                 first_text_line_index = i
                 break
 
-        start_index_for_main_loop = 0 # Por defecto, si no hay Drop Cap
+        start_index_for_main_loop = 0
+        lines_drawn = 0
         
         if first_text_line_index != -1:
             full_first_line_content, _ = texto_lines[first_text_line_index]
             drop_cap_char = full_first_line_content[0]
             
-            # Unir el resto de la primera línea con el resto de líneas del primer párrafo
+            # 2a. Recolectar todo el texto del primer párrafo (después de la letra capital)
             first_paragraph_content_lines = []
-            
-            # Obtener todas las líneas de texto del primer párrafo (desde la primera línea)
             idx_end_first_para = first_text_line_index
             while idx_end_first_para < len(texto_lines) and texto_lines[idx_end_first_para][1] != 'paragraph_break':
                 first_paragraph_content_lines.append(texto_lines[idx_end_first_para][0])
                 idx_end_first_para += 1
             
-            # Todo el texto a rodear la letra capital
             text_to_reflow = " ".join(first_paragraph_content_lines)[1:].lstrip() # Quitar la letra capital
             
             # --- SETUP DE LETRA CAPITAL ---
-            DROP_CAP_LINES = 3 # Número de líneas que ocupa verticalmente
+            DROP_CAP_LINES = 3 # Ocupará 3 líneas de altura.
             
-            # La altura de la fuente se ajusta para que el baseline coincida con 3 líneas
-            drop_cap_size = line_spacing * (DROP_CAP_LINES + 0.8) 
+            # Ajuste de tamaño de fuente para que la altura total de la caja del texto
+            # cubra exactamente las 3 líneas, ajustado por el line_spacing.
+            # Este es un ajuste empírico para que la parte superior e inferior coincidan
+            # con el flujo del texto circundante.
+            drop_cap_size = line_spacing * (DROP_CAP_LINES + 0.3) 
             
-            # Dibujar la letra capital
-            drop_cap_x = margin_left
-            drop_cap_y = y_text
-            
-            # Recalcular la fuente con el tamaño final
             try:
                 font_drop_cap = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", int(drop_cap_size))
             except Exception:
-                font_drop_cap = font_titulo 
+                font_drop_cap = font_drop_cap_base 
             
             # Calcular ancho de la Letra Capital
             bbox_cap = draw.textbbox((0, 0), drop_cap_char, font=font_drop_cap)
             cap_width = bbox_cap[2] - bbox_cap[0]
             
-            # Colores y Sombra
-            cap_color = '#ef4444' 
-            shadow_color = (0, 0, 0, 80) 
+            # Ajuste vertical fino para alinear la parte superior de la cap con la primera línea de texto
+            cap_y_adjustment = -15 
+            drop_cap_x = margin_left 
+            drop_cap_y_final = y_text + cap_y_adjustment
             
-            # 2. DIBUJAR LETRA CAPITAL
-            draw.text((drop_cap_x + 3, drop_cap_y + 3), drop_cap_char, font=font_drop_cap, fill=shadow_color)
-            draw.text((drop_cap_x, drop_cap_y), drop_cap_char, font=font_drop_cap, fill=cap_color)
+            # Colores
+            cap_color = '#ef4444' 
+            
+            # DIBUJAR LETRA CAPITAL
+            draw.text((drop_cap_x, drop_cap_y_final), drop_cap_char, font=font_drop_cap, fill=cap_color)
             
             # 3. RE-WRAPPING para el texto que va junto a la cap
-            rest_x = drop_cap_x + cap_width + 20 
+            rest_x = drop_cap_x + cap_width + 25 # Margen derecho de la cap
             rest_max_width = a4_width - rest_x - margin_right
             
-            # Re-envolver el texto restante, ahora con un ancho reducido
             wrapped_reflow_text = wrap_text_with_markdown(text_to_reflow, fonts, rest_max_width, temp_draw)
             
-            y_current_temp = drop_cap_y + 0.1 * line_spacing 
+            y_current_reflow = y_text 
             
             # 3a. Dibuja las líneas que van AL LADO de la Letra Capital
             lines_drawn_around_cap = 0
             
             for j, (line_content, _) in enumerate(wrapped_reflow_text):
                 if lines_drawn_around_cap < DROP_CAP_LINES:
-                    # Dibujar con ancho reducido y justificación
-                    draw_formatted_line(draw, rest_x, y_current_temp, line_content, fonts, text_color, max_width_px=rest_max_width)
-                    y_current_temp += line_spacing
+                    if line_content.strip(): 
+                        draw_formatted_line(draw, rest_x, y_current_reflow, line_content, fonts, text_color, max_width_px=rest_max_width)
+                    y_current_reflow += line_spacing
                     lines_drawn_around_cap += 1
                 else:
                     break
 
             # 3b. Mover el punto de inicio para el resto del cuento
-            y_text = drop_cap_y + DROP_CAP_LINES * line_spacing + paragraph_spacing 
+            # El nuevo punto Y empieza después de las 3 líneas ocupadas por la letra capital
+            y_text = y_text + DROP_CAP_LINES * line_spacing + paragraph_spacing 
+            lines_drawn = lines_drawn_around_cap
             
             # 3c. Dibujar el resto de las líneas del primer párrafo (si hubo overflow)
             for j in range(lines_drawn_around_cap, len(wrapped_reflow_text)):
@@ -339,15 +412,14 @@ async def crear_ficha(
                 x_pos = margin_left
                 draw_formatted_line(draw, x_pos, y_text, line_content, fonts, text_color, max_width_px=max_width_px)
                 y_text += line_spacing
+                lines_drawn += 1
             
             # Si el primer párrafo original terminó con un salto de línea, avanzar
             if idx_end_first_para < len(texto_lines) and texto_lines[idx_end_first_para][1] == 'paragraph_break':
                 y_text += paragraph_spacing
                 idx_end_first_para += 1 
             
-            # El bucle principal debe empezar a dibujar a partir del segundo párrafo
             start_index_for_main_loop = idx_end_first_para 
-            lines_drawn = 1
         
         # ----------------------------------------------------------------------
         # BUCLE PRINCIPAL PARA EL RESTO DEL CUENTO (PÁRRAFOS SIGUIENTES)
@@ -398,7 +470,7 @@ async def crear_hoja_preguntas(
     titulo_cuento: str = Form(default=""),
     estilo: str = Form(default="infantil")
 ):
-    logger.info(f"📝 v4.0-PREGUNTAS-OPCIONES: {len(preguntas)} caracteres")
+    logger.info(f"📝 v5.5-PREGUNTAS: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -484,17 +556,19 @@ async def crear_hoja_preguntas(
         # PROCESAR PREGUNTAS
         try:
             import json
+            # Intenta cargar como JSON (lista de preguntas/opciones)
             preguntas_list = json.loads(preguntas)
             if not isinstance(preguntas_list, list):
+                # Si no es lista, o si el JSON es solo una cadena, trata de separar por \n\n
                 preguntas_list = [preguntas]
 
             # Si es un array con 1 elemento, separar por \n\n
-            if len(preguntas_list) == 1 and '\n\n' in preguntas_list[0]:
-                preguntas_list = preguntas_list[0].split('\n\n')
+            if len(preguntas_list) == 1 and '\n\n' in str(preguntas_list[0]):
+                preguntas_list = str(preguntas_list[0]).split('\n\n')
 
             logger.info(f"✅ {len(preguntas_list)} preguntas parseadas")
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Error parseando JSON: {e}")
+            logger.error(f"Error parseando JSON: {e}. Cayendo a split por \n\n.")
             preguntas_list = preguntas.split('\n\n')
         
         # CONFIGURACIÓN DE LAYOUT
@@ -526,7 +600,9 @@ async def crear_hoja_preguntas(
         
         # TÍTULO DEL CUENTO
         if titulo_cuento:
-            cuento_text = f'Cuento: "{titulo_cuento}"'
+            # Aplicar capitalización de título también al título del cuento en la hoja de preguntas
+            titulo_capitalizado = to_title_case(titulo_cuento)
+            cuento_text = f'Cuento: "{titulo_capitalizado}"'
             bbox = draw.textbbox((0, 0), cuento_text, font=font_subtitulo)
             text_width = bbox[2] - bbox[0]
             x_centered = (a4_width - text_width) // 2
@@ -580,10 +656,10 @@ async def crear_hoja_preguntas(
             # Separar pregunta de opciones
             partes = pregunta_completa.split('\n')
             pregunta_principal = partes[0].strip()
-            opciones = [p.strip() for p in partes[1:] if p.strip() and p.strip().startswith(('a)', 'b)', 'c)', 'd)'))]
+            # Filtra opciones que tengan formato a), b), etc.
+            opciones = [p.strip() for p in partes[1:] if p.strip() and re.match(r'^[a-dA-D]\)', p.strip())]
             
             # Limpiar numeración si ya viene
-            import re
             pregunta_sin_numero = re.sub(r'^\d+\.\s*', '', pregunta_principal)
             
             # NÚMERO DE PREGUNTA
@@ -618,16 +694,15 @@ async def crear_hoja_preguntas(
                 x_pregunta = margin_left
             
             # TEXTO DE LA PREGUNTA
-            max_width_pregunta = max_width_px - 40
+            max_width_pregunta = max_width_px - (x_pregunta - margin_left)
             
-            # USAR LA VERSIÓN MEJORADA que respeta saltos de línea
             pregunta_lines_with_type = wrap_text_with_markdown(pregunta_sin_numero, fonts, max_width_pregunta, draw)
             
             for line, line_type in pregunta_lines_with_type:
                 if line_type == 'paragraph_break':
-                    y_text += 40  # Espacio entre párrafos en preguntas
+                    y_text += 40  
                     continue
-                draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color)
+                draw_formatted_line(draw, x_pregunta, y_text, line, fonts, text_color, max_width_px=max_width_pregunta)
                 y_text += line_spacing
             
             # OPCIONES (si las hay)
@@ -639,12 +714,13 @@ async def crear_hoja_preguntas(
                         break
                     
                     x_opcion = x_pregunta + 60
-                    opcion_lines_with_type = wrap_text_with_markdown(opcion, fonts_opciones, max_width_pregunta - 60, draw)
+                    max_width_opcion = max_width_pregunta - 60
+                    opcion_lines_with_type = wrap_text_with_markdown(opcion, fonts_opciones, max_width_opcion, draw)
                     
                     for line, line_type in opcion_lines_with_type:
                         if line_type == 'paragraph_break':
                             continue
-                        draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color)
+                        draw_formatted_line(draw, x_opcion, y_text, line, fonts_opciones, text_color, max_width_px=max_width_opcion)
                         y_text += option_spacing
                 
                 y_text += question_spacing
@@ -692,15 +768,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "5.3-DROP-CAP",
+        "version": "5.5-TITLE-CASE-APPLIED",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (DROP CAP en primer párrafo)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo"
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (COVER CENTRADO, título con fondo, DROP CAP, Title Case)",
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (Title Case en el título del cuento)"
         },
-        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL Y JUSTIFICACIÓN)"
+        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "5.3-DROP-CAP"}
+    return {"status": "healthy", "version": "5.5-TITLE-CASE-APPLIED"}
