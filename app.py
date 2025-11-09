@@ -218,7 +218,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v7.0-TITULO-CENTRADO-DIVISORIA: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v7.4-BORDE-MAS-VISIBLE: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -302,7 +302,7 @@ async def crear_ficha(
         max_width_px = a4_width - margin_left - margin_right
         max_height = 3380
 
-        y_text = header_height + 85 
+        y_text = header_height + 245  # Bajado 2 líneas más para dar equilibrio con el título 
         
         # TÍTULO (En el borde inferior de la imagen: 50% sobre imagen, 50% sobre texto)
         if titulo:
@@ -529,7 +529,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v7.0-TITULO-CENTRADO-DIVISORIA: {len(preguntas)} caracteres")
+    logger.info(f"📝 v7.4-BORDE-MAS-VISIBLE: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -540,11 +540,11 @@ async def crear_hoja_preguntas(
         a4_width = 2480
         a4_height = 3508
         
-        # ADAPTAR IMAGEN A A4 (ESTIRAR)
-        logger.info(f"📐 Estirando imagen {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
-        # Inicializar canvas como RGBA para permitir la composición de la capa semi-transparente
-        # FIX 1: La imagen de fondo cubre 100% de la hoja A4.
+        # ESTIRAR imagen de fondo para cubrir TODA la hoja A4
+        # (La imagen de fondo es cuadrada y debe expandirse a lo alto/ancho de la hoja)
+        logger.info(f"📐 Estirando imagen de fondo {border_img.width}x{border_img.height} a A4 {a4_width}x{a4_height}")
         canvas = border_img.resize((a4_width, a4_height), Image.Resampling.LANCZOS)
+        logger.info(f"✅ Imagen de fondo expandida completamente a toda la hoja")
         
         if canvas.mode != 'RGBA':
             canvas = canvas.convert('RGBA')
@@ -555,9 +555,9 @@ async def crear_hoja_preguntas(
         # respetando los márgenes para dejar visible el borde temático de la IA.
         # ----------------------------------------------------------------------
         
-        # Márgenes para la capa blanca (debe ser más grande que el margen de texto)
-        BACKGROUND_MARGIN_X = 180 
-        BACKGROUND_MARGIN_Y = 150
+        # Márgenes para la capa blanca (AUMENTADOS para que sea más pequeña y se vea más el borde)
+        BACKGROUND_MARGIN_X = 150  # AUMENTADO para dejar más espacio al borde
+        BACKGROUND_MARGIN_Y = 120  # AUMENTADO para dejar más espacio al borde
         
         # Coordenadas del área de contenido central (el rectangulo blanco)
         content_x1 = BACKGROUND_MARGIN_X
@@ -670,9 +670,9 @@ async def crear_hoja_preguntas(
         
         # CONFIGURACIÓN DE LAYOUT
         
-        # Margen de texto interno (ajustado para que el texto NO toque los bordes)
-        TEXT_MARGIN_X = 250 
-        TEXT_MARGIN_Y_TOP = 200
+        # Margen de texto interno (debe ser mayor que BACKGROUND_MARGIN para que el texto esté dentro de la capa blanca)
+        TEXT_MARGIN_X = 200  # Mayor que BACKGROUND_MARGIN_X (150) para dejar espacio interno
+        TEXT_MARGIN_Y_TOP = 260  # Mayor que BACKGROUND_MARGIN_Y (120) para dejar espacio interno
         
         # El ancho máximo de texto se define por los márgenes
         text_start_x = TEXT_MARGIN_X 
@@ -913,15 +913,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "7.0-TITULO-CENTRADO-DIVISORIA",
+        "version": "7.4-BORDE-MAS-VISIBLE",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Título centrado en divisoria)",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (BG Imagen 100% y Capa blanca CENTRAL)"
+            "POST /crear-ficha": "Crea ficha de lectura con mejor espaciado entre título y texto",
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo MÁS VISIBLE (márgenes aumentados)"
         },
-        "message": "Dual service: reading worksheets + question sheets (TÍTULO CENTRADO EN LÍNEA DIVISORIA)"
+        "message": "Dual service: reading worksheets + question sheets (BORDE DECORATIVO MÁS VISIBLE)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "7.0-TITULO-CENTRADO-DIVISORIA"}
+    return {"status": "healthy", "version": "7.4-BORDE-MAS-VISIBLE"}
