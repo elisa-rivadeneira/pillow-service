@@ -694,7 +694,7 @@ async def crear_hoja_preguntas(
         y_text = margin_top
         
         # ENCABEZADO "Comprensión Lectora" (MANTENIENDO ESTILO 3D AZUL/ROSA)
-        encabezado = "📚 Comprensión Lectora"
+        encabezado = "Comprensión Lectora"
         bbox = draw.textbbox((0, 0), encabezado, font=font_titulo)
         text_width = bbox[2] - bbox[0]
         x_centered = (a4_width - text_width) // 2
