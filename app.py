@@ -599,22 +599,42 @@ async def crear_hoja_preguntas(
         }
         
         # PROCESAR PREGUNTAS
-        try:
-            import json
-            # Intenta cargar como JSON (lista de preguntas/opciones)
-            preguntas_list = json.loads(preguntas)
-            if not isinstance(preguntas_list, list):
-                # Si no es lista, o si el JSON es solo una cadena, trata de separar por \n\n
-                preguntas_list = [preguntas]
+	try:
+	    import json
+	    import re
+	    
+	    # Intenta cargar como JSON (lista de preguntas/opciones)
+	    preguntas_list = json.loads(preguntas)
+	    if not isinstance(preguntas_list, list):
+		preguntas_list = [preguntas]
 
-            # Si es un array con 1 elemento, separar por \n\n
-            if len(preguntas_list) == 1 and '\n\n' in str(preguntas_list[0]):
-                preguntas_list = str(preguntas_list[0]).split('\n\n')
+	    # Si es un array con 1 elemento, intentar separar de forma inteligente
+	    if len(preguntas_list) == 1:
+		texto_completo = str(preguntas_list[0])
+		
+		# ESTRATEGIA 1: Buscar numeración (1., 2., 3., etc.) - Funciona con \n o \n\n
+		# El patrón busca: inicio de línea O salto de línea, seguido de dígito(s) y punto
+		partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
+		partes_numeradas = [p.strip() for p in partes_numeradas if p.strip()]
+		
+		if len(partes_numeradas) > 1:
+		    # Si encontró preguntas numeradas, usarlas (maneja \n y \n\n)
+		    preguntas_list = partes_numeradas
+		    logger.info(f"✅ Separado por numeración: {len(preguntas_list)} preguntas")
+		elif '\n\n' in texto_completo:
+		    # ESTRATEGIA 2: Fallback a separación por doble salto
+		    preguntas_list = [p.strip() for p in texto_completo.split('\n\n') if p.strip()]
+		    logger.info(f"✅ Separado por \\n\\n: {len(preguntas_list)} preguntas")
+		else:
+		    logger.warning("⚠️ No se pudo separar las preguntas, usando como una sola")
 
-            logger.info(f"✅ {len(preguntas_list)} preguntas parseadas")
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Error parseando JSON: {e}. Cayendo a split por \n\n.")
-            preguntas_list = preguntas.split('\n\n')
+	    logger.info(f"✅ {len(preguntas_list)} preguntas parseadas en total")
+	except (json.JSONDecodeError, TypeError) as e:
+	    logger.error(f"Error parseando JSON: {e}. Cayendo a split inteligente.")
+	    # Fallback con el mismo método inteligente
+	    texto_completo = str(preguntas)
+	    partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
+	    preguntas_list = [p.strip() for p in partes_numeradas if p.strip()]
         
         # CONFIGURACIÓN DE LAYOUT
         
