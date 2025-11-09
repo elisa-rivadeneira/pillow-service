@@ -4,11 +4,29 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import logging
 import re
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+def sanitize_filename(text: str) -> str:
+    """
+    Sanitiza un string para usarlo como nombre de archivo.
+    Elimina caracteres especiales y reemplaza espacios con guiones bajos.
+    """
+    if not text:
+        return "Sin_Titulo"
+    
+    # Eliminar caracteres especiales, mantener solo letras, números, espacios y guiones
+    sanitized = re.sub(r'[^\w\s-]', '', text)
+    # Reemplazar espacios por guiones bajos
+    sanitized = re.sub(r'\s+', '_', sanitized)
+    # Limitar longitud
+    sanitized = sanitized[:50]
+    
+    return sanitized if sanitized else "Sin_Titulo"
 
 def to_title_case(text: str) -> str:
     """
@@ -200,7 +218,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v6.9-NOMBRES-DESCRIPTIVOS: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -475,12 +493,17 @@ async def crear_ficha(
         if estilo == "infantil":
             draw_wavy_border(draw, a4_width, a4_height)
         
-        output_path = "/tmp/ficha_completa.png"
+        # GENERAR NOMBRE DE ARCHIVO CON TIMESTAMP
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        titulo_sanitizado = sanitize_filename(titulo) if titulo else "Sin_Titulo"
+        filename = f"Cuento_{titulo_sanitizado}_ficha_lectura_{timestamp}.png"
+        
+        output_path = f"/tmp/{filename}"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
-        logger.info("✅ Ficha creada con Letra Capital")
+        logger.info(f"✅ Ficha creada: {filename}")
         
-        return FileResponse(output_path, media_type="image/png", filename="ficha_educativa.png")
+        return FileResponse(output_path, media_type="image/png", filename=filename)
         
     except Exception as e:
         logger.error(f"❌ Error: {str(e)}")
@@ -497,7 +520,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL: {len(preguntas)} caracteres")
+    logger.info(f"📝 v6.9-NOMBRES-DESCRIPTIVOS: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -599,42 +622,42 @@ async def crear_hoja_preguntas(
         }
         
         # PROCESAR PREGUNTAS
-	try:
-	    import json
-	    import re
-	    
-	    # Intenta cargar como JSON (lista de preguntas/opciones)
-	    preguntas_list = json.loads(preguntas)
-	    if not isinstance(preguntas_list, list):
-		preguntas_list = [preguntas]
+        try:
+            import json
+            import re
+            
+            # Intenta cargar como JSON (lista de preguntas/opciones)
+            preguntas_list = json.loads(preguntas)
+            if not isinstance(preguntas_list, list):
+                preguntas_list = [preguntas]
 
-	    # Si es un array con 1 elemento, intentar separar de forma inteligente
-	    if len(preguntas_list) == 1:
-		texto_completo = str(preguntas_list[0])
-		
-		# ESTRATEGIA 1: Buscar numeración (1., 2., 3., etc.) - Funciona con \n o \n\n
-		# El patrón busca: inicio de línea O salto de línea, seguido de dígito(s) y punto
-		partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
-		partes_numeradas = [p.strip() for p in partes_numeradas if p.strip()]
-		
-		if len(partes_numeradas) > 1:
-		    # Si encontró preguntas numeradas, usarlas (maneja \n y \n\n)
-		    preguntas_list = partes_numeradas
-		    logger.info(f"✅ Separado por numeración: {len(preguntas_list)} preguntas")
-		elif '\n\n' in texto_completo:
-		    # ESTRATEGIA 2: Fallback a separación por doble salto
-		    preguntas_list = [p.strip() for p in texto_completo.split('\n\n') if p.strip()]
-		    logger.info(f"✅ Separado por \\n\\n: {len(preguntas_list)} preguntas")
-		else:
-		    logger.warning("⚠️ No se pudo separar las preguntas, usando como una sola")
+            # Si es un array con 1 elemento, intentar separar de forma inteligente
+            if len(preguntas_list) == 1:
+                texto_completo = str(preguntas_list[0])
+                
+                # ESTRATEGIA 1: Buscar numeración (1., 2., 3., etc.) - Funciona con \n o \n\n
+                # El patrón busca: inicio de línea O salto de línea, seguido de dígito(s) y punto
+                partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
+                partes_numeradas = [p.strip() for p in partes_numeradas if p.strip()]
+                
+                if len(partes_numeradas) > 1:
+                    # Si encontró preguntas numeradas, usarlas (maneja \n y \n\n)
+                    preguntas_list = partes_numeradas
+                    logger.info(f"✅ Separado por numeración: {len(preguntas_list)} preguntas")
+                elif '\n\n' in texto_completo:
+                    # ESTRATEGIA 2: Fallback a separación por doble salto
+                    preguntas_list = [p.strip() for p in texto_completo.split('\n\n') if p.strip()]
+                    logger.info(f"✅ Separado por \\n\\n: {len(preguntas_list)} preguntas")
+                else:
+                    logger.warning("⚠️ No se pudo separar las preguntas, usando como una sola")
 
-	    logger.info(f"✅ {len(preguntas_list)} preguntas parseadas en total")
-	except (json.JSONDecodeError, TypeError) as e:
-	    logger.error(f"Error parseando JSON: {e}. Cayendo a split inteligente.")
-	    # Fallback con el mismo método inteligente
-	    texto_completo = str(preguntas)
-	    partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
-	    preguntas_list = [p.strip() for p in partes_numeradas if p.strip()]
+            logger.info(f"✅ {len(preguntas_list)} preguntas parseadas en total")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Error parseando JSON: {e}. Cayendo a split inteligente.")
+            # Fallback con el mismo método inteligente
+            texto_completo = str(preguntas)
+            partes_numeradas = re.split(r'(?:^|\n+)(?=\d+\.)', texto_completo)
+            preguntas_list = [p.strip() for p in partes_numeradas if p.strip()]
         
         # CONFIGURACIÓN DE LAYOUT
         
@@ -857,14 +880,19 @@ async def crear_hoja_preguntas(
         
         logger.info(f"✅ {questions_drawn}/{len(preguntas_list)} preguntas dibujadas")
         
+        # GENERAR NOMBRE DE ARCHIVO CON TIMESTAMP
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        titulo_sanitizado = sanitize_filename(titulo_cuento) if titulo_cuento else "Sin_Titulo"
+        filename = f"Cuento_{titulo_sanitizado}_ficha_preguntas_{timestamp}.png"
+        
         # GUARDAR
         canvas = canvas.convert('RGB')
-        output_path = "/tmp/hoja_preguntas.png"
+        output_path = f"/tmp/{filename}"
         canvas.save(output_path, quality=95, dpi=(300, 300))
         
-        logger.info("✅ Hoja de preguntas creada")
+        logger.info(f"✅ Hoja de preguntas creada: {filename}")
         
-        return FileResponse(output_path, media_type="image/png", filename="hoja_preguntas.png")
+        return FileResponse(output_path, media_type="image/png", filename=filename)
         
     except Exception as e:
         logger.error(f"❌ Error: {str(e)}")
@@ -876,15 +904,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL",
+        "version": "6.9-NOMBRES-DESCRIPTIVOS",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
             "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Soporte para Letra Capital y Justificación)",
             "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (BG Imagen 100% y Capa blanca CENTRAL)"
         },
-        "message": "Dual service: reading worksheets + question sheets (SOPORTE DE LETRA CAPITAL, JUSTIFICACIÓN Y CAPITALIZACIÓN DE TÍTULO) - FIX BG IMAGEN 100% Y CAPA BLANCA CENTRAL"
+        "message": "Dual service: reading worksheets + question sheets (NOMBRES DESCRIPTIVOS CON TIMESTAMP)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "6.8-BG-IMAGEN-100%-CAPA-BLANCA-CENTRAL"}
+    return {"status": "healthy", "version": "6.9-NOMBRES-DESCRIPTIVOS"}
