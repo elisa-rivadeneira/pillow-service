@@ -218,7 +218,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v6.9-NOMBRES-DESCRIPTIVOS: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v7.0-TITULO-CENTRADO-DIVISORIA: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -304,33 +304,42 @@ async def crear_ficha(
 
         y_text = header_height + 85 
         
-        # TÍTULO (Superpuesto en la imagen con fondo semitransparente)
+        # TÍTULO (En el borde inferior de la imagen: 50% sobre imagen, 50% sobre texto)
         if titulo:
             # APLICAR CAPITALIZACIÓN DE TÍTULO
             titulo_capitalizado = to_title_case(titulo)
             logger.info(f"Título original: '{titulo}' -> Capitalizado: '{titulo_capitalizado}'")
-            
-            title_x_bg = 100 # Punto de inicio del fondo
-            title_y_bg = 100
             
             # Calcular tamaño del bounding box del título con la nueva fuente
             bbox_title = draw.textbbox((0, 0), titulo_capitalizado, font=font_titulo)
             title_width = bbox_title[2] - bbox_title[0]
             title_height = bbox_title[3] - bbox_title[1]
 
-            # AJUSTE DE MARGEN (CORREGIDO)
+            # AJUSTE DE MARGEN
             padding_x = 40 
             padding_y = 30
+            
+            # Altura total del rectángulo del título
+            rect_height = title_height + 2 * padding_y
+            
+            # CENTRAR HORIZONTALMENTE
+            title_x_bg = (a4_width - title_width - 2 * padding_x) // 2
+            
+            # POSICIONAR VERTICALMENTE: Exactamente en el borde inferior de la imagen
+            # 50% del rectángulo sobre la imagen, 50% sobre el fondo blanco
+            title_y_bg = header_height - rect_height // 2
             
             # Coordenadas del rectángulo de fondo
             title_bg_rect = [
                 (title_x_bg, title_y_bg),
-                (title_x_bg + title_width + 2 * padding_x, title_y_bg + title_height + 2 * padding_y)
+                (title_x_bg + title_width + 2 * padding_x, title_y_bg + rect_height)
             ]
             
             # Coordenadas donde empieza el texto (centrado dentro del padding)
             title_offset_x = title_x_bg + padding_x
             title_offset_y = title_y_bg + padding_y
+            
+            logger.info(f"📍 Título posicionado: Y={title_y_bg} (borde imagen: {header_height}, altura rect: {rect_height})")
             
             # Crear una capa temporal para el fondo semitransparente (RGBA)
             alpha_img = Image.new('RGBA', canvas.size, (255, 255, 255, 0)) # Completamente transparente
@@ -520,7 +529,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v6.9-NOMBRES-DESCRIPTIVOS: {len(preguntas)} caracteres")
+    logger.info(f"📝 v7.0-TITULO-CENTRADO-DIVISORIA: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -904,15 +913,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "6.9-NOMBRES-DESCRIPTIVOS",
+        "version": "7.0-TITULO-CENTRADO-DIVISORIA",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
-            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Soporte para Letra Capital y Justificación)",
+            "POST /crear-ficha": "Crea ficha de lectura con imagen y texto del cuento (Título centrado en divisoria)",
             "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo (BG Imagen 100% y Capa blanca CENTRAL)"
         },
-        "message": "Dual service: reading worksheets + question sheets (NOMBRES DESCRIPTIVOS CON TIMESTAMP)"
+        "message": "Dual service: reading worksheets + question sheets (TÍTULO CENTRADO EN LÍNEA DIVISORIA)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "6.9-NOMBRES-DESCRIPTIVOS"}
+    return {"status": "healthy", "version": "7.0-TITULO-CENTRADO-DIVISORIA"}
