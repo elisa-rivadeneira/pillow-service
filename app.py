@@ -218,7 +218,7 @@ async def crear_ficha(
     estilo: str = Form(default="infantil"),
     # Se elimina imagen_modo, ahora es cover centrado por defecto
 ):
-    logger.info(f"📥 v7.4-BORDE-MAS-VISIBLE: {len(texto_cuento)} chars, header={header_height}px")
+    logger.info(f"📥 v7.5-MARGENES-ASIMETRICOS-CAPA-CENTRADA: {len(texto_cuento)} chars, header={header_height}px")
     
     try:
         img_bytes = await imagen.read()
@@ -529,7 +529,7 @@ async def crear_hoja_preguntas(
     estilo: str = Form(default="infantil")
 ):
     # Se añade la versión al logger para seguimiento
-    logger.info(f"📝 v7.4-BORDE-MAS-VISIBLE: {len(preguntas)} caracteres")
+    logger.info(f"📝 v7.5-MARGENES-ASIMETRICOS-CAPA-CENTRADA: {len(preguntas)} caracteres")
     
     try:
         # Leer imagen del borde
@@ -555,9 +555,9 @@ async def crear_hoja_preguntas(
         # respetando los márgenes para dejar visible el borde temático de la IA.
         # ----------------------------------------------------------------------
         
-        # Márgenes para la capa blanca (AUMENTADOS para que sea más pequeña y se vea más el borde)
-        BACKGROUND_MARGIN_X = 150  # AUMENTADO para dejar más espacio al borde
-        BACKGROUND_MARGIN_Y = 120  # AUMENTADO para dejar más espacio al borde
+        # Márgenes para la capa blanca (AUMENTADOS verticalmente para centrar mejor)
+        BACKGROUND_MARGIN_X = 150  # Horizontal: bien establecido
+        BACKGROUND_MARGIN_Y = 200  # AUMENTADO de 120 a 200 para hacer la capa más pequeña y centrada
         
         # Coordenadas del área de contenido central (el rectangulo blanco)
         content_x1 = BACKGROUND_MARGIN_X
@@ -670,13 +670,14 @@ async def crear_hoja_preguntas(
         
         # CONFIGURACIÓN DE LAYOUT
         
-        # Margen de texto interno (debe ser mayor que BACKGROUND_MARGIN para que el texto esté dentro de la capa blanca)
-        TEXT_MARGIN_X = 200  # Mayor que BACKGROUND_MARGIN_X (150) para dejar espacio interno
-        TEXT_MARGIN_Y_TOP = 260  # Mayor que BACKGROUND_MARGIN_Y (120) para dejar espacio interno
+        # Margen de texto interno (ASIMÉTRICO: más margen a la izquierda)
+        TEXT_MARGIN_LEFT = 280   # DOBLE margen izquierdo para que círculo y texto queden dentro
+        TEXT_MARGIN_RIGHT = 200  # Margen derecho normal (está bien)
+        TEXT_MARGIN_Y_TOP = 320  # Ajustado para la nueva altura de capa blanca
         
-        # El ancho máximo de texto se define por los márgenes
-        text_start_x = TEXT_MARGIN_X 
-        text_end_x = a4_width - TEXT_MARGIN_X
+        # El ancho máximo de texto se define por los márgenes asimétricos
+        text_start_x = TEXT_MARGIN_LEFT 
+        text_end_x = a4_width - TEXT_MARGIN_RIGHT
         max_width_px = text_end_x - text_start_x
         
         margin_top = TEXT_MARGIN_Y_TOP # Iniciar texto con margen superior
@@ -687,8 +688,8 @@ async def crear_hoja_preguntas(
         answer_line_height = 60 
         space_after_answer = 80
         
-        # Altura máxima: margen inferior
-        max_height = a4_height - TEXT_MARGIN_Y_TOP + 100 
+        # Altura máxima: debe terminar antes del margen inferior
+        max_height = a4_height - 320  # Margen inferior para mantener contenido dentro de la capa 
 
         y_text = margin_top
         
@@ -913,15 +914,15 @@ async def crear_hoja_preguntas(
 def root():
     return {
         "status": "ok",
-        "version": "7.4-BORDE-MAS-VISIBLE",
+        "version": "7.5-MARGENES-ASIMETRICOS-CAPA-CENTRADA",
         "features": ["crear_ficha", "crear_hoja_preguntas"],
         "endpoints": {
             "POST /crear-ficha": "Crea ficha de lectura con mejor espaciado entre título y texto",
-            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con borde decorativo MÁS VISIBLE (márgenes aumentados)"
+            "POST /crear-hoja-preguntas": "Crea hoja de preguntas con capa blanca centrada y márgenes asimétricos"
         },
-        "message": "Dual service: reading worksheets + question sheets (BORDE DECORATIVO MÁS VISIBLE)"
+        "message": "Dual service: reading worksheets + question sheets (CAPA BLANCA CENTRADA + MÁRGENES ASIMÉTRICOS)"
     }
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "version": "7.4-BORDE-MAS-VISIBLE"}
+    return {"status": "healthy", "version": "7.5-MARGENES-ASIMETRICOS-CAPA-CENTRADA"}
